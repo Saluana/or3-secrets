@@ -37,8 +37,18 @@ const run = (cmd: string, args: string[], cwd = work, input?: string) => {
 };
 const stop = async (child?: ReturnType<typeof spawn>) => {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((yes) => {
-    child.once('exit', () => yes());
+  await new Promise<void>((resolve, reject) => {
+    const killTimer = setTimeout(() => child.kill('SIGKILL'), 5000);
+    const deadline = setTimeout(() => {
+      child.removeListener('exit', exited);
+      reject(new Error('Provider fixture did not exit after SIGKILL'));
+    }, 10000);
+    const exited = () => {
+      clearTimeout(killTimer);
+      clearTimeout(deadline);
+      resolve();
+    };
+    child.once('exit', exited);
     child.kill('SIGTERM');
   });
 };

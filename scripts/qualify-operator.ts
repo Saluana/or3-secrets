@@ -39,23 +39,31 @@ const transcript: { command: string; exit: number; output: string }[] = [];
 const value = 'synthetic-operator-value\nwith-exact-newline\n';
 let child: ChildProcess | undefined,
   serviceLog = '',
-  passed = false;
+  passed = false,
+  failed = false;
 let vault = join(work, 'vault'),
   key = join(work, 'master.key'),
   operator = join(work, 'operator.token');
 const socket = join(work, 'run/api.sock'),
   service = join(work, 'service.token');
 const stop = async () => {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  const ended = new Promise<void>((yes) => child!.once('close', () => yes()));
-  child.kill('SIGTERM');
-  const timer = setTimeout(() => child?.kill('SIGKILL'), 5000);
-  try {
-    await ended;
-    check(child.exitCode === 0, 'Service did not stop gracefully');
-  } finally {
-    clearTimeout(timer);
-  }
+  const stopping = child;
+  if (!stopping || stopping.exitCode !== null || stopping.signalCode !== null) return;
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => stopping.kill('SIGKILL'), 5000);
+    const deadline = setTimeout(() => {
+      stopping.removeListener('close', closed);
+      reject(new Error('Operator service did not exit after SIGKILL'));
+    }, 10000);
+    const closed = () => {
+      clearTimeout(timer);
+      clearTimeout(deadline);
+      if (stopping.exitCode === 0) resolve();
+      else reject(new Error('Service did not stop gracefully'));
+    };
+    stopping.once('close', closed);
+    stopping.kill('SIGTERM');
+  });
 };
 try {
   check(Bun.version === '1.3.14', 'Use the qualified Bun runtime');
@@ -175,6 +183,7 @@ try {
     ],
     77,
   );
+  check(!existsSync(join(work, 'operator-refused')), 'Failed disclosure left an incomplete output');
 
   const expiring = join(work, 'expiring.token');
   issue(expiring, '2s');
@@ -204,6 +213,10 @@ try {
       join(work, 'audit-refused'),
     ],
     77,
+  );
+  check(
+    !existsSync(join(work, 'audit-refused')),
+    'Failed audit-reader disclosure left an incomplete output',
   );
   const readPage = async (
     after?: { seq: number; mac: string },
@@ -390,8 +403,18 @@ try {
       receipt: 'test-results/operator.json',
     }),
   );
+} catch (error) {
+  failed = true;
+  throw error;
 } finally {
-  await stop();
+  try {
+    await stop();
+  } catch (error) {
+    if (!failed) throw error;
+    console.error(
+      'Operator fixture cleanup also failed; preserving the original qualification error.',
+    );
+  }
   if (passed) rmSync(work, { recursive: true, force: true });
   else console.error(`Failed disposable operator fixture retained: ${work}`);
 }

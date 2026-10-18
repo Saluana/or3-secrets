@@ -280,6 +280,9 @@ try {
           }
         }
       });
+    // Bun 1.3.14 exposes native getrusage().ru_maxrss directly: Darwin bytes,
+    // unlike Node's normalized KiB. Linux /proc reports KiB and is converted.
+    // See tagged src/jsc/bindings/BunProcess.cpp Process_functionResourceUsage.
     const peakRssBytes =
       process.platform === 'linux'
         ? Number(/^VmHWM:\s+(\d+) kB$/m.exec(readFileSync('/proc/self/status', 'utf8'))?.[1]) * 1024

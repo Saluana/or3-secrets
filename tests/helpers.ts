@@ -93,10 +93,23 @@ export class Fixture {
     });
   }
   async stop(signal: NodeJS.Signals = 'SIGTERM') {
-    if (!this.child || this.child.exitCode !== null) return;
     const child = this.child;
-    await new Promise<void>((yes) => {
-      child.once('exit', () => yes());
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
+      this.child = undefined;
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const killTimer = setTimeout(() => child.kill('SIGKILL'), 5000);
+      const deadline = setTimeout(() => {
+        child.removeListener('exit', exited);
+        reject(new Error('Service did not exit after SIGKILL'));
+      }, 10000);
+      const exited = () => {
+        clearTimeout(killTimer);
+        clearTimeout(deadline);
+        resolve();
+      };
+      child.once('exit', exited);
       child.kill(signal);
     });
     this.child = undefined;
