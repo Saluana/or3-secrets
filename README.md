@@ -2,7 +2,7 @@
 
 A small Bun service, CLI, Node client, and optional OR3 Nuxt provider. One Unix socket and one private SQLite database; encrypted secret values, scoped expiring tokens, compare-and-set revisions, required authenticated audit, and fresh-key recovery.
 
-**Development implementation, unpublished (`0.0.0`).** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](https://github.com/Saluana/or3-secrets/blob/main/docs/qualification.md), [Linux core measurements](https://github.com/Saluana/or3-secrets/blob/main/docs/linux-qualification.md), and the [production control gates](https://github.com/Saluana/or3-secrets/blob/main/planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
+**Initial release candidate (`0.1.0`); npm publication pending.** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](https://github.com/Saluana/or3-secrets/blob/main/docs/qualification.md), [Linux core measurements](https://github.com/Saluana/or3-secrets/blob/main/docs/linux-qualification.md), and the [production control gates](https://github.com/Saluana/or3-secrets/blob/main/planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
 
 ```sh
 # Use exactly Bun 1.3.14 on PATH; do not upgrade another project's global runtime.
@@ -22,6 +22,17 @@ Start with `or3-secrets --help`. Every command has its own required options, exa
 Ctrl-C or SIGTERM stops the foreground service gracefully; successful cleanup exits 0 and removes the socket.
 
 Read [architecture](docs/architecture.md) for module boundaries and the security rules they share. Unpublished vault-format compatibility requirements are documented in [security and API](docs/security.md).
+
+## Installation
+
+Once `0.1.0` is published, install the exact version:
+
+```sh
+npm install --save-exact @or3/secrets@0.1.0
+npx --yes @or3/secrets@0.1.0 --help
+```
+
+The Node client requires Node 24 or newer. Running the CLI or service also requires Bun 1.3.14 on PATH. Installing this package never starts a service or creates credentials. Until publication, install the qualified tarball instead. See [releasing](https://github.com/Saluana/or3-secrets/blob/main/docs/releasing.md) for the qualification and publishing procedure.
 
 ## Node client
 

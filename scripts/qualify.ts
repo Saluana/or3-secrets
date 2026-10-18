@@ -167,13 +167,15 @@ try {
     bomFormat: 'CycloneDX',
     specVersion: '1.5',
     version: 1,
-    metadata: { component: { type: 'application', name: '@or3/secrets', version: '0.0.0' } },
+    metadata: { component: { type: 'application', name: '@or3/secrets', version: pack.version } },
     components,
   };
   writeFileSync(join(resultDir, 'sbom.cdx.json'), JSON.stringify(sbom, null, 2));
   const artifact = join(resultDir, pack.filename);
   writeFileSync(artifact, readFileSync(tarball));
   const receipt = {
+    packageName: pack.name,
+    packageVersion: pack.version,
     runtime: Bun.version,
     node: run('node', ['--version']).trim(),
     platform: process.platform,
