@@ -1,6 +1,6 @@
 # Planned production security profile
 
-**Status: proposed, not qualified.** This describes the supported initial deployment and its acceptance gates. Implementation, operational evidence, independent review, and any compliance assessment are pending. It grants no certification and makes no PCI DSS, SOC 2, NIST, GDPR, HIPAA, or FIPS compliance claim. Read with [requirements](requirements.md), [design](design.md), and [tasks](tasks.md).
+**Status: implementation internally qualified; production acceptance pending.** The [implementation receipt](../../docs/implementation-receipt.md) records executed product tests, distinct Linux identities, ENOSPC, packaging and exact-limit recovery. This profile describes deployment gates: target operational evidence, independent review and any compliance assessment remain pending. It grants no certification and makes no PCI DSS, SOC 2, NIST, GDPR, HIPAA, or FIPS compliance claim. Read with [requirements](requirements.md), [design](design.md), and [tasks](tasks.md).
 
 ## Assurance decision before runtime commitment
 

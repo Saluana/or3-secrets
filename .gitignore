@@ -1,0 +1,11 @@
+node_modules/
+dist/
+test-results/
+.env*
+*.sqlite*
+*.key
+*.token
+*.backup
+*.tgz
+vault/
+coverage/

@@ -1,0 +1,4 @@
+env = false
+
+[test]
+timeout = 30000

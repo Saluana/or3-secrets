@@ -1,0 +1,37 @@
+# Internal security review — 2026-10-18
+
+Reviewed the working implementation of `or3-secrets` and the OR3 provider integration. This is a source and adversarial regression review by the implementation agent, not an independent audit or production acceptance. No real credentials, deployments, releases or user data were changed.
+
+## Findings fixed
+
+| Severity | Finding and demonstrated failure | Repair and primary regression |
+| --- | --- | --- |
+| High | Per-row MACs admitted a valid older secret, a pre-revocation token, an older wrapping-count header, or deleted secret/token rows. All five database-only attacks passed offline verification before the fix. | Replay authenticated audit mutations during startup and compare every current record, tombstone, token and wrap count. Issuance/revocation events identify their target token; recovery records the fresh-key budget and invalidates the preceding token inventory. `selective replay and deletion cannot revive secrets or revoked tokens` rejects all five attacks. |
+| High | The browser adapter followed a 307 response, forwarding the secret-bearing POST and activation handle to another endpoint. This requires an unexpected redirect from the host or its middleware/proxy. A two-server loopback regression observed the forwarded request. | Set Fetch `redirect: 'error'`. The real transport regression now observes zero requests at the redirect destination and a fixed failure. |
+| Medium | Filesystem validation lexically collapsed `..` before checking ancestors, while the kernel traversed a preceding symlink first. A token below a world-writable ancestor was accepted through the crafted client path. | Reject non-normalized parent paths before traversal. The real client regression now refuses the path before sending credentials. Normal CLI paths are resolved before use; all remaining ancestors must pass ownership/mode/symlink checks. |
+| Medium | The OR3 route had no request budget or bound on concurrent package/vault work. A seventeenth stalled provider call entered, and a sixty-first request from the same account was accepted even across changing plugin IDs. | Reuse the host rate limiter for 60 requests/minute per internal user; bound concurrent package/vault work to 16 per process, release slots in `finally`, and return `429` with `Retry-After`. Regressions also confirm revocation during awaited reads suppresses plaintext and frees admission slots. |
+| Medium | Divergent audit cursors generated required denial events without consuming the reader's five-attempt/second budget. Twelve parallel invalid-cursor requests all bypassed throttling. | Count attempts before cursor verification, including failures. The existing audit transport scenario now verifies throttling of invalid cursors. |
+
+Every listed regression was observed failing against the pre-fix code for the stated reason, then passing after repair. No test-only switches were added to production. The OR3 route tests fixture session/package/provider dependencies; the redirect and vault scenarios use real transports.
+
+## Review coverage
+
+Inspected AES-GCM envelope encryption, AAD, HKDF separation, token generation/digests, row/header/policy integrity, SQLite schema restrictions and transaction/error paths, required audit before disclosure, CAS/tombstones, startup/shutdown, Unix socket and filesystem permissions, body/output bounds, CLI disclosure, backup authentication and fresh-key recovery. Checked the Node client, Nuxt packaging/private configuration, OR3 registry, authenticated scope derivation, origin guard, activation/package/grant checks, asynchronous result fencing, session-only storage, and browser failure behavior. Existing tests exercise the scope/capability matrix, cryptographic negative controls, crash recovery and output reservations.
+
+The fixes use existing cryptographic primitives, audit records and host rate limiting. No cryptographic algorithm, runtime dependency, credential authority or automatic retry was added. Startup memory now scales with the secret/token inventory as well as ordinary SQLite buffers; deployment capacity qualification must include the intended inventory, not only a long audit history.
+
+## Compatibility and limits
+
+This unpublished `0.0.0` development format now requires audit evidence that earlier fixtures lack. Those vaults and their backups fail closed. Create a fresh disposable vault in new paths; no old files are rewritten, migrated or deleted automatically. Any non-disposable older vault requires a separately reviewed recovery procedure before changing its runtime.
+
+A mutually consistent rollback of the entire database, or a valid audit suffix removal that does not change current state, still requires independently retained checkpoints to detect. Possession of an old database is enough to replay it; the attacker need not know its key. Root, a compromised vault identity, an authorized plaintext consumer and hostile in-process code are outside the encryption boundary. Path validation assumes trusted owners cannot race their own paths; it does not substitute for OS isolation.
+
+The OR3 limits bound admitted package/provider work. HTTP upload/time limits remain an ingress responsibility; the Unix vault separately enforces its five-second body deadline. Authenticated consumers can still consume storage within their granted authority: external capacity, audit retention and expiry monitoring remain required.
+
+## Verification record
+
+The final vault suite passed on macOS arm64 and non-root Linux arm64: **16 tests, 242 assertions** on each. The affected OR3 suites passed **116 tests across 10 files**; the route's nine cases were rerun after correcting its typed numeric `Retry-After` headers. Both typechecks, the package build, and public documentation checks passed. Bun's lockfile advisory scan returned no findings. Real Linux ENOSPC recovery and distinct service/client UID isolation passed again. Pre-existing OR3 duplicate-auto-import warnings remain.
+
+The subsequent actual-implementation run passed the vault suite again (16 tests, 242 assertions) and 129 OR3 tests across ten affected suites. A new repeatable `scripts/qualify-host.ts` also passed against the checksum-verified tarball with Bun 1.3.14 and Node 24.13.0: real admin upload/review, UI browser canary/promotion, Chat trusted activation, `host.secrets` persistence/session cleanup, tombstones/stale refs, server-derived scope, workspace-switch and grant-revocation refusal, unauthenticated refusal, and live vault outage/restart without device fallback. Synthetic plaintext was absent from vault files/browser storage; private provider inputs were absent from Nuxt hydration/config payloads. The receipt and inspected screenshot are `test-results/host-browser.json` and `host-browser.png`. No production code repair was required by this run.
+
+Repeat the commands in [qualification](qualification.md). Current machine receipts are under ignored `test-results/`; the original [implementation receipt](implementation-receipt.md) records earlier qualification separately. Package checksums identify only the tested working-tree artifact. Independent review, target OS/runtime advisories, power-loss qualification and deployment control gates remain open; the full browser activation gap is now covered in a disposable development instance.

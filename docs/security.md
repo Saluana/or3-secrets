@@ -1,0 +1,40 @@
+# Security and protocol
+
+The trust boundary includes the kernel/root, service UID, runtime, local filesystem, entropy and clock. OR3 is a trusted service principal limited by its machine-token policy; it owns end-user/plugin authorization. A stolen service token plus socket access permits its scoped operations. The master key, operator token, database and recovery mounts must be inaccessible to OR3's different effective UID.
+
+Values use fresh random 32-byte data keys and independent 12-byte random AES-256-GCM nonces, full 16-byte tags, and a master-derived wrapping key. Fixed-array AAD binds format, purpose, vault, record ID, namespace, internal user, workspace, consumer, name and revision. HKDF separates wrapping, row/header/policy integrity, verification, audit and backup purposes. Complete records, tombstones, policies and the wrap counter are authenticated. The 1,000,000 committed-wrap limit applies to one admitted local lineage, not rolled-back attempts or clones. Restore/rekey generate a fresh master key and reencrypt every live value, counting destination wraps.
+
+The exact SQLite schema is allowlisted before data operations; added/changed tables, indexes, views and triggers are refused. No extension loading or attached database API is exposed. The service asserts effective `journal_mode=DELETE`, `locking_mode=EXCLUSIVE`, `synchronous=EXTRA`, `trusted_schema=OFF`, and foreign keys. Transactions are synchronous: authorization, secret mutation, required audit and commit finish before the response. Required audit failure returns no plaintext, metadata page or credential; mutation failures roll back. Storage integrity/I/O failure stops admission. SQLite may retain an empty/reusable rollback journal during exclusive ownership; preserve it during crash recovery.
+
+Audit uses a fixed schema and chained keyed MACs. Startup verifies the complete history and reconciles its successful mutations with every current secret revision/tombstone, issued/revoked token, and wrapping count. Replaying an older authenticated row or removing a row fails admission. Recovery events revoke the prior token inventory and reset the wrapping count under the fresh key. Verification keeps a compact map of record/token IDs, so memory also depends on inventory size. An attacker can still restore an entire mutually consistent old database without knowing the key: retain sequence/MAC/vault receipts independently to detect a valid history suffix removal or whole-state rollback. Actor/request/activation fields are bounded application claims, not proof of a human identity or authorization. Names, values and raw bearer/activation tokens are excluded. Scope is represented by a keyed identifier. Service-token issuance/admin actions use the operator credential; because it can mint reading credentials, it has full administrative authority. Bearer files do not implement MFA or individual accountability.
+
+Machine tokens contain 256 random bits; only SHA-256 digests and authenticated policies persist. Service tokens require a namespace, explicit capabilities (`metadata`, `read`, `write`, `delete`) and expiry of 1 second–90 days, optionally restricted to exact owner/workspace/consumer. Audit-reader tokens have only `audit`, vault-wide access to sensitive audit metadata, explicit expiry and no secret/admin authority. Operator tokens never authorize direct secret operations. Revocation takes effect after its committed transaction; in-flight admitted operations may finish. Token use is checked on each operation.
+
+## Unix HTTP v1
+
+POST JSON only, `Content-Type: application/json`, no Origin/cookie/query. Headers: `Authorization: Bearer <credential>` and mandatory `X-OR3-Vault-Id: <32 lowercase hex>`. Response identity is also checked. Successful requests return JSON directly, errors `{error:{code}}`, with no-store. No TCP listener or browser access. No SQL, raw input, keys or paths are reflected by service errors.
+
+Every body includes `context:{requestId,actorId?,activationId?}`. Identifiers are nonempty UTF-8, at most 128 bytes, without control characters or malformed surrogates. Exact keys only. Body 256 KiB, value 32 KiB UTF-8, 16 admitted in-flight requests, five-second body deadline. Revisions are positive safe integers up to 9,007,199,254,740,990. Values are exact strings including whitespace.
+
+| Path after `/v1/` | Body fields besides context | Authority/result |
+| --- | --- | --- |
+| `status` | none | Any valid credential; vault/protocol, expiry, audit sequence, capacity/effective storage |
+| `secrets/inspect` | scope, name | metadata; current metadata or null |
+| `secrets/list` | scope, after?, limit? | metadata; `{items,next?}` including tombstones |
+| `secrets/put` | scope, name, value, expectedRevision | write; new metadata; 0 creates, current revision updates |
+| `secrets/resolve` | scope, selector: `{name}` or `{ref:{id,revision}}` | read; `{value,meta}`; stale/deleted refs 404 |
+| `secrets/delete` | scope, name, expectedRevision | delete; incremented authenticated tombstone |
+| `tokens/issue` | kind, capabilities, expiresInSeconds, namespace?, ownerUserId?, workspaceId?, consumerId? | operator; one-time `{token,meta}` |
+| `tokens/list` | after?, limit? | operator; bounded metadata, never digests/tokens |
+| `tokens/revoke` | id | operator; revoke service/audit credential |
+| `audit/read` | after: null or cursor, through?: cursor, limit | audit-reader; `{events,cursor,through}` |
+
+Scope has exactly `{namespace,ownerUserId,workspaceId,consumerId}`. Pages contain at most 100 entries; audit pages additionally cap at 256 KiB. Cursor is `{seq,mac}`. Audit reads validate cursors, freeze the head before appending their own required access event, permit at most five attempts/second (including invalid cursors) and one fresh-head capture/30 seconds per reader. Carry `through` for a batch; never chase each new access event continuously. Persist independent collector progress only after durable forwarding. Cursor divergence is a hard stop requiring operator investigation.
+
+Bad credentials, malformed requests and throttling increment fixed saturating counters, coalesced in sanitized stderr diagnostics every 30 seconds. This bounded operational signal is not a durable per-attempt audit trail. Required authenticated operations fail closed when audit persistence is unavailable; externally monitor service exit, stderr backpressure/loss, collector lag, clocks and disk.
+
+## Recovery format
+
+Backup outer AES-256-GCM authenticates the **entire** SQLite snapshot including metadata. Fixed 96-byte header: magic `OR3BAK01` (8), vault hex (32), salt (32), nonce (12), unsigned big-endian payload length (8), zero reserved bytes (4). Header is AAD; tag 16 bytes; exact overhead 112 bytes. Snapshot maximum 1,073,741,824 bytes. Declared/actual lengths, complete tag and EOF are mandatory. Processing uses bounded chunks; no SQLite opens before complete authentication/EOF. Staging and outputs remain private.
+
+New init/restore/rekey outputs use no-overwrite creation, fsync of file contents and directory entries, and a completion marker written last. Interrupted destinations are unusable until a completely new destination succeeds. Source data and old keys remain intact. Process-crash recovery tests do not establish durability on power loss; qualify the real storage stack. Managed JavaScript strings cannot guarantee zeroization, despite wiping owned mutable key/plaintext buffers.
