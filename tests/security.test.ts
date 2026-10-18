@@ -889,74 +889,79 @@ scenario(
 // CLI owns reservation cleanup, retryability and local receipt diagnostics.
 // Existing safe-output coverage only rejected paths that existed before the call.
 // Real subprocesses and the service exercise failures without production seams.
-scenario(
-  'failed CLI disclosures release their reservations and malformed receipts are usage errors',
-  async () => {
-    const f = new Fixture();
-    try {
-      await f.start();
-      const token = await f.token();
-      const transport = ['--socket', f.socket, '--vault-id', f.vaultId, '--token-file', token.file];
-      const output = join(f.root, 'failed-output');
-      for (const args of [
-        ['get', ...f.args(token.file), '--name', 'absent'],
-        [
-          'token',
-          'issue',
-          ...transport,
-          '--kind',
-          'service',
-          '--namespace',
-          'test',
-          '--capabilities',
-          'read',
-          '--expires-in',
-          '1h',
-        ],
-        ['audit', 'read', ...transport],
-      ]) {
-        const result = cli([...args, '--out-file', output]);
-        expect(result.status).not.toBe(0);
-        expect(JSON.parse(result.stderr).error.code).not.toBe('output_exists');
-        expect(existsSync(output)).toBe(false);
-      }
-      await f.call(
-        'secrets/put',
-        { scope, name: 'retry', value: 'synthetic-retry', expectedRevision: 0 },
-        token.token,
-      );
-      expect(
-        cli(['get', ...f.args(token.file), '--name', 'retry', '--out-file', output]).status,
-      ).toBe(0);
-      expect(readFileSync(output, 'utf8')).toBe('synthetic-retry');
-      await f.stop();
-      const receipt = join(f.root, 'invalid-receipt');
-      for (const contents of [
-        '{',
-        'null',
-        JSON.stringify({ seq: 1, mac: '0'.repeat(64), vaultId: 'invalid' }),
-      ]) {
-        writeFileSync(receipt, contents, { mode: 0o600 });
-        const result = cli([
-          'audit',
-          'verify',
-          '--vault-dir',
-          f.vault,
-          '--key-file',
-          f.key,
-          '--receipt-file',
-          receipt,
-        ]);
-        expect(result.status).toBe(64);
-        expect(JSON.parse(result.stderr).error.code).toBe('invalid_request');
-        expect(JSON.parse(result.stderr).error.message).toContain('--receipt-file');
-        expect(result.stdout + result.stderr).not.toContain(contents);
-      }
-    } finally {
-      await f.close();
+scenario('failed CLI disclosures release their reservations and permit retry', async () => {
+  const f = new Fixture();
+  try {
+    await f.start();
+    const token = await f.token();
+    const transport = ['--socket', f.socket, '--vault-id', f.vaultId, '--token-file', token.file];
+    const output = join(f.root, 'failed-output');
+    for (const args of [
+      ['get', ...f.args(token.file), '--name', 'absent'],
+      [
+        'token',
+        'issue',
+        ...transport,
+        '--kind',
+        'service',
+        '--namespace',
+        'test',
+        '--capabilities',
+        'read',
+        '--expires-in',
+        '1h',
+      ],
+      ['audit', 'read', ...transport],
+    ]) {
+      const result = cli([...args, '--out-file', output]);
+      expect(result.status).not.toBe(0);
+      expect(JSON.parse(result.stderr).error.code).not.toBe('output_exists');
+      expect(existsSync(output)).toBe(false);
     }
-  },
-);
+    await f.call(
+      'secrets/put',
+      { scope, name: 'retry', value: 'synthetic-retry', expectedRevision: 0 },
+      token.token,
+    );
+    expect(
+      cli(['get', ...f.args(token.file), '--name', 'retry', '--out-file', output]).status,
+    ).toBe(0);
+    expect(readFileSync(output, 'utf8')).toBe('synthetic-retry');
+  } finally {
+    await f.close();
+  }
+});
+
+scenario('malformed local receipt files produce private actionable usage errors', async () => {
+  const f = new Fixture();
+  try {
+    const receipt = join(f.root, 'invalid-receipt');
+    for (const contents of [
+      '{"privateMarker":"synthetic-malformed-receipt",',
+      'null',
+      JSON.stringify({ seq: 1, mac: '0'.repeat(64), vaultId: 'invalid' }),
+    ]) {
+      writeFileSync(receipt, contents, { mode: 0o600 });
+      const result = cli([
+        'audit',
+        'verify',
+        '--vault-dir',
+        f.vault,
+        '--key-file',
+        f.key,
+        '--receipt-file',
+        receipt,
+      ]);
+      expect(result.status).toBe(64);
+      expect(JSON.parse(result.stderr).error.code).toBe('invalid_request');
+      expect(JSON.parse(result.stderr).error.message).toContain('--receipt-file');
+      expect(result.stdout).toBe('');
+      expect(result.stderr).not.toContain('synthetic-malformed-receipt');
+    }
+  } finally {
+    await f.close();
+  }
+});
 
 scenario(
   'startup verifies cipher context and both GCM layers independently of row MACs',
