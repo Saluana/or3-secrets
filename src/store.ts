@@ -353,7 +353,7 @@ export class Vault {
           }
           for (const row of source.tokenRows()) {
             source.verifyToken(row);
-            const copied = { ...row, revoked_at: Date.now() };
+            const copied = { ...row, revoked_at: row.revoked_at ?? Date.now() };
             copied.mac = mac(vault.keys.record, 'token', tokenFields(copied));
             vault.insertToken(copied);
           }
@@ -805,7 +805,8 @@ export class Vault {
     expectedVault: string,
   ): unknown {
     if (this.failed || this.closed) fail('unavailable', 503);
-    const startingCount = this.header.wrap_count;
+    const startingCount = this.header.wrap_count,
+      startingMac = this.header.mac;
     let inTransaction = false,
       token: TokenRow | undefined,
       rejection: SecretError | undefined,
@@ -840,6 +841,7 @@ export class Vault {
         }
       }
       this.header.wrap_count = startingCount;
+      this.header.mac = startingMac;
       if (error instanceof SecretError) {
         if (error.code === 'integrity_failure') this.failed = true;
         throw error;
@@ -983,7 +985,7 @@ export class Vault {
       return { value, meta: metadata(row) };
     }
     if ((row?.revision ?? 0) !== input.expectedRevision) fail('revision_conflict', 409);
-    if (operation === 'secrets/delete' && !row) fail('not_found', 404);
+    if (operation === 'secrets/delete' && (!row || row.state === 'deleted')) fail('not_found', 404);
     const changed: SecretRow = {
       id: row?.id ?? randomId(),
       namespace: scope.namespace,

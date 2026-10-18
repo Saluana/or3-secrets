@@ -334,6 +334,20 @@ scenario('CAS concurrency and delete/recreate never revive a reference', async (
       t.token,
     );
     expect(deleted.data.ref.revision).toBe(3);
+    // A current tombstone is absent; a stale CAS still reports a conflict.
+    const repeated = await f.call(
+      'secrets/delete',
+      { scope, name: 'key', expectedRevision: 3 },
+      t.token,
+    );
+    expect(repeated.status).toBe(404);
+    expect(repeated.data.error.code).toBe('not_found');
+    expect(
+      (await f.call('secrets/delete', { scope, name: 'key', expectedRevision: 2 }, t.token)).status,
+    ).toBe(409);
+    expect(
+      (await f.call('secrets/inspect', { scope, name: 'key' }, t.token)).data.ref.revision,
+    ).toBe(3);
     const recreated = await f.call(
       'secrets/put',
       { scope, name: 'key', value: 'fourth', expectedRevision: 3 },
@@ -656,6 +670,11 @@ scenario(
         { scope, name: 'recover', value: canary, expectedRevision: 0 },
         t.token,
       );
+      const revoked = await f.token();
+      expect((await f.call('tokens/revoke', { id: revoked.meta.id })).status).toBe(200);
+      const originalRevocation = (await f.call('tokens/list')).data.items.find(
+        (item: any) => item.id === revoked.meta.id,
+      ).revokedAt;
       await f.stop();
       const source = readFileSync(join(f.vault, 'vault.sqlite'));
       const backup = join(f.root, 'snapshot.backup');
@@ -704,6 +723,11 @@ scenario(
         f.logs = '';
         await f.start();
         expect((await f.call('status', {}, t.token)).status).toBe(401);
+        const copiedTokens = (await f.call('tokens/list')).data.items;
+        expect(copiedTokens.find((item: any) => item.id === revoked.meta.id).revokedAt).toBe(
+          originalRevocation,
+        );
+        expect(copiedTokens.find((item: any) => item.id === t.meta.id).revokedAt).not.toBeNull();
         const fresh = await f.token();
         expect(
           (await f.call('secrets/resolve', { scope, selector: { name: 'recover' } }, fresh.token))
@@ -857,6 +881,78 @@ scenario(
       const after = (await f.call('status')).data.auditSeq;
       expect(after - beforeExport).toBe(2); // Two status events; no read, export or issued credential.
       expect(readFileSync(existing, 'utf8')).toBe('preserve');
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+// CLI owns reservation cleanup, retryability and local receipt diagnostics.
+// Existing safe-output coverage only rejected paths that existed before the call.
+// Real subprocesses and the service exercise failures without production seams.
+scenario(
+  'failed CLI disclosures release their reservations and malformed receipts are usage errors',
+  async () => {
+    const f = new Fixture();
+    try {
+      await f.start();
+      const token = await f.token();
+      const transport = ['--socket', f.socket, '--vault-id', f.vaultId, '--token-file', token.file];
+      const output = join(f.root, 'failed-output');
+      for (const args of [
+        ['get', ...f.args(token.file), '--name', 'absent'],
+        [
+          'token',
+          'issue',
+          ...transport,
+          '--kind',
+          'service',
+          '--namespace',
+          'test',
+          '--capabilities',
+          'read',
+          '--expires-in',
+          '1h',
+        ],
+        ['audit', 'read', ...transport],
+      ]) {
+        const result = cli([...args, '--out-file', output]);
+        expect(result.status).not.toBe(0);
+        expect(JSON.parse(result.stderr).error.code).not.toBe('output_exists');
+        expect(existsSync(output)).toBe(false);
+      }
+      await f.call(
+        'secrets/put',
+        { scope, name: 'retry', value: 'synthetic-retry', expectedRevision: 0 },
+        token.token,
+      );
+      expect(
+        cli(['get', ...f.args(token.file), '--name', 'retry', '--out-file', output]).status,
+      ).toBe(0);
+      expect(readFileSync(output, 'utf8')).toBe('synthetic-retry');
+      await f.stop();
+      const receipt = join(f.root, 'invalid-receipt');
+      for (const contents of [
+        '{',
+        'null',
+        JSON.stringify({ seq: 1, mac: '0'.repeat(64), vaultId: 'invalid' }),
+      ]) {
+        writeFileSync(receipt, contents, { mode: 0o600 });
+        const result = cli([
+          'audit',
+          'verify',
+          '--vault-dir',
+          f.vault,
+          '--key-file',
+          f.key,
+          '--receipt-file',
+          receipt,
+        ]);
+        expect(result.status).toBe(64);
+        expect(JSON.parse(result.stderr).error.code).toBe('invalid_request');
+        expect(JSON.parse(result.stderr).error.message).toContain('--receipt-file');
+        expect(result.stdout + result.stderr).not.toContain(contents);
+      }
     } finally {
       await f.close();
     }

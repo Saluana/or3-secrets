@@ -1,5 +1,13 @@
 import { parseArgs } from 'node:util';
-import { readSync, writeSync, fsyncSync, closeSync } from 'node:fs';
+import {
+  readSync,
+  writeSync,
+  fsyncSync,
+  closeSync,
+  fstatSync,
+  lstatSync,
+  unlinkSync,
+} from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { createClient } from './client.js';
 import { Vault } from './store.js';
@@ -94,6 +102,34 @@ async function privateOutput<T>(
   action: () => Promise<{ bytes: string; result: T }>,
 ): Promise<T> {
   const fd = createPrivate(path);
+  const reserved = fstatSync(fd);
+  let complete = false;
+  const cleanup = () => {
+    if (complete) return;
+    try {
+      const current = lstatSync(path);
+      // Never remove a path replaced while the request was outstanding.
+      if (current.dev === reserved.dev && current.ino === reserved.ino) {
+        unlinkSync(path);
+        syncDirectory(dirname(path));
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        process.stderr.write(
+          'Unable to remove incomplete private output; inspect the output path.\n',
+        );
+    }
+  };
+  const interrupted = () => {
+    cleanup();
+    process.exit(130);
+  };
+  const terminated = () => {
+    cleanup();
+    process.exit(143);
+  };
+  process.once('SIGINT', interrupted);
+  process.once('SIGTERM', terminated);
   try {
     const { bytes, result } = await action();
     const buffer = Buffer.from(bytes);
@@ -106,8 +142,12 @@ async function privateOutput<T>(
       buffer.fill(0);
     }
     syncDirectory(dirname(path));
+    complete = true;
     return result;
   } finally {
+    process.removeListener('SIGINT', interrupted);
+    process.removeListener('SIGTERM', terminated);
+    cleanup();
     closeSync(fd);
   }
 }
@@ -186,11 +226,26 @@ async function main() {
     process.stdout.write(JSON.stringify(value, null, process.stdout.isTTY ? 2 : undefined) + '\n');
   const receipt = (): Receipt | undefined => {
     if (!values['receipt-file']) return;
-    const data = JSON.parse(readPrivate(path('receipt-file'), 1024).toString('utf8'));
-    return {
-      ...parseCursor(data && { seq: data.seq, mac: data.mac }),
-      vaultId: identifier(data.vaultId),
-    };
+    const bytes = readPrivate(path('receipt-file'), 1024);
+    try {
+      const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+      if (
+        !data ||
+        typeof data !== 'object' ||
+        Array.isArray(data) ||
+        Object.keys(data).some((key) => !['seq', 'mac', 'vaultId'].includes(key)) ||
+        typeof data.vaultId !== 'string' ||
+        !/^[a-f0-9]{32}$/.test(data.vaultId)
+      )
+        usage('--receipt-file must contain a JSON receipt with vaultId, seq and mac.');
+      return { ...parseCursor({ seq: data.seq, mac: data.mac }), vaultId: data.vaultId };
+    } catch {
+      usage(
+        '--receipt-file must contain a JSON receipt with a 32-character vaultId, positive seq and 64-character mac.',
+      );
+    } finally {
+      bytes.fill(0);
+    }
   };
   if (command === 'init') {
     json(
