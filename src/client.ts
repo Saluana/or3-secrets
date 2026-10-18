@@ -11,6 +11,8 @@ import {
   type Context,
   type Cursor,
   type Operation,
+  type OperationResults,
+  ID_PATTERN,
   type SecretStore,
   type TokenPolicy,
 } from './protocol.js';
@@ -23,6 +25,10 @@ export type {
   TokenPolicy,
   Cursor,
   Receipt,
+  TokenMeta,
+  StatusResult,
+  AuditPage,
+  AuditEvent,
 } from './protocol.js';
 export { SecretError } from './protocol.js';
 
@@ -44,16 +50,16 @@ export function createClient(options: ClientOptions) {
   )
     fail('invalid_configuration');
   if (
-    !/^[a-f0-9]{32}$/.test(options.vaultId) ||
+    !ID_PATTERN.test(options.vaultId) ||
     !options.socketPath.startsWith('/') ||
     !options.tokenFile.startsWith('/')
   )
     fail('invalid_configuration');
-  const call = async <T>(
-    operation: Operation,
+  const call = async <O extends Operation>(
+    operation: O,
     input: Record<string, unknown>,
     context?: Partial<Context>,
-  ): Promise<T> => {
+  ): Promise<OperationResults[O]> => {
     const requestContext = parseContext({ requestId: randomUUID(), ...context });
     const wire = { ...input, context: requestContext };
     parseInput(operation, wire);
@@ -67,14 +73,14 @@ export function createClient(options: ClientOptions) {
       if (error instanceof SecretError) throw error;
       fail('unavailable', 503);
     }
-    return new Promise<T>((yes, no) => {
+    return new Promise<OperationResults[O]>((resolveResponse, rejectResponse) => {
       let settled = false;
-      const finish = (error?: SecretError, value?: T) => {
+      const finish = (error?: SecretError, value?: OperationResults[O]) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (error) no(error);
-        else yes(value!);
+        if (error) rejectResponse(error);
+        else resolveResponse(value!);
       };
       const req = request(
         {
@@ -120,7 +126,7 @@ export function createClient(options: ClientOptions) {
                     response.statusCode ?? 503,
                   ),
                 );
-              } else finish(undefined, parseResponse(operation, data) as T);
+              } else finish(undefined, parseResponse(operation, data));
             } catch {
               finish(new SecretError('invalid_response', 503));
             }
@@ -146,28 +152,15 @@ export function createClient(options: ClientOptions) {
   };
   return {
     ...store,
-    status: (context?: Partial<Context>) =>
-      call<{
-        vaultId: string;
-        protocolVersion: number;
-        expiresAt: number | null;
-        auditSeq: number;
-        storage: Record<string, number | string>;
-      }>('status', {}, context),
+    status: (context?: Partial<Context>) => call('status', {}, context),
     issueToken: (policy: TokenPolicy, context?: Partial<Context>) =>
-      call<{ token: string; meta: { id: string } }>('tokens/issue', policy, context),
+      call('tokens/issue', policy, context),
     listTokens: (input: { after?: string; limit?: number } = {}, context?: Partial<Context>) =>
-      call<{ items: unknown[]; next?: string }>('tokens/list', input, context),
-    revokeToken: (id: string, context?: Partial<Context>) =>
-      call<unknown>('tokens/revoke', { id }, context),
+      call('tokens/list', input, context),
+    revokeToken: (id: string, context?: Partial<Context>) => call('tokens/revoke', { id }, context),
     readAudit: (
       input: { after: Cursor | null; through?: Cursor; limit: number },
       context?: Partial<Context>,
-    ) =>
-      call<{
-        events: { seq: number; previousMac: string; event: Record<string, unknown>; mac: string }[];
-        cursor: Cursor | null;
-        through: Cursor;
-      }>('audit/read', input, context),
+    ) => call('audit/read', input, context),
   };
 }

@@ -1,5 +1,4 @@
 declare module '#imports' {
-  export function defineNitroPlugin(plugin: () => void): () => void;
   export function useRuntimeConfig(): {
     secrets?: {
       provider: string;

@@ -1,4 +1,10 @@
 export const PROTOCOL_VERSION = 1;
+export const ID_PATTERN = /^[a-f0-9]{32}$/;
+export const MAC_PATTERN = /^[a-f0-9]{64}$/;
+export const CREDENTIAL_PATTERN = /^ors1\.[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/;
+export const SERVICE_CAPABILITIES = ['metadata', 'read', 'write', 'delete'] as const;
+export const MAX_PAGE_SIZE = 100;
+export const MAX_TOKEN_LIFETIME_SECONDS = 90 * 86400;
 export const MAX_BODY = 256 * 1024;
 export const MAX_VALUE = 32 * 1024;
 export const MAX_SNAPSHOT = 2 ** 30;
@@ -32,6 +38,70 @@ export type TokenPolicy = {
   workspaceId?: string;
   consumerId?: string;
   expiresInSeconds: number;
+};
+export type TokenMeta = Readonly<{
+  id: string;
+  kind: 'operator' | 'service' | 'audit-reader';
+  namespace: string | null;
+  ownerUserId: string | null;
+  workspaceId: string | null;
+  consumerId: string | null;
+  capabilities: (Capability | 'audit')[];
+  expiresAt: number | null;
+  revokedAt: number | null;
+  createdAt: number;
+}>;
+export type Page<T> = { items: T[]; next?: string };
+export type StatusResult = {
+  vaultId: string;
+  protocolVersion: typeof PROTOCOL_VERSION;
+  expiresAt: number | null;
+  auditSeq: number;
+  storage: {
+    databaseBytes: number;
+    maxLiveBytes: number;
+    maxSnapshotBytes: number;
+    journalMode: 'delete';
+    lockingMode: 'exclusive';
+    synchronous: 'extra';
+    wrapCount: number;
+    maxWraps: number;
+  };
+};
+export type AuditPayload = {
+  at: string;
+  operation: string;
+  outcome: string;
+  requestId: string;
+  tokenId?: string;
+  scopeId?: string;
+  recordId?: string;
+  revision?: number;
+  actorId?: string;
+  activationId?: string;
+  detail?: {
+    after?: number;
+    through?: number;
+    returned?: number;
+    priorReceipt?: Receipt;
+    targetTokenId?: string;
+    wrapCount?: number;
+    recordMac?: string;
+  };
+};
+export type AuditEvent = { seq: number; previousMac: string; event: AuditPayload; mac: string };
+export type AuditPage = { events: AuditEvent[]; cursor: Cursor | null; through: Cursor };
+export type OperationResults = {
+  status: StatusResult;
+  'secrets/inspect': SecretMeta | null;
+  'secrets/list': Page<SecretMeta>;
+  'secrets/put': SecretMeta;
+  'secrets/resolve': { value: string; meta: SecretMeta };
+  'secrets/delete': SecretMeta;
+  'tokens/issue': { token: string; meta: TokenMeta };
+  'tokens/list': Page<TokenMeta>;
+  'tokens/revoke': TokenMeta;
+  'audit/read': AuditPage;
 };
 export interface SecretStore {
   inspect(
@@ -116,7 +186,7 @@ export function parseContext(value: unknown): Context {
 }
 export function parseCursor(value: unknown): Cursor {
   const r = object(value, ['seq', 'mac']);
-  if (typeof r.mac !== 'string' || !/^[a-f0-9]{64}$/.test(r.mac)) fail('invalid_request');
+  if (typeof r.mac !== 'string' || !MAC_PATTERN.test(r.mac)) fail('invalid_request');
   return { seq: integer(r.seq, 1), mac: r.mac };
 }
 export interface OperationInput {
@@ -145,28 +215,63 @@ export const OPERATIONS = [
   'audit/read',
 ] as const;
 export type Operation = (typeof OPERATIONS)[number];
-export function parseInput(operation: Operation, input: unknown): OperationInput {
-  const fields: Record<Operation, readonly string[]> = {
-    status: [],
-    'secrets/inspect': ['scope', 'name'],
-    'secrets/list': ['scope', 'after', 'limit'],
-    'secrets/put': ['scope', 'name', 'value', 'expectedRevision'],
-    'secrets/resolve': ['scope', 'selector'],
-    'secrets/delete': ['scope', 'name', 'expectedRevision'],
-    'tokens/issue': [
-      'kind',
-      'namespace',
-      'ownerUserId',
-      'workspaceId',
-      'consumerId',
-      'capabilities',
-      'expiresInSeconds',
-    ],
-    'tokens/list': ['after', 'limit'],
-    'tokens/revoke': ['id'],
-    'audit/read': ['after', 'through', 'limit'],
+const INPUT_FIELDS: Record<Operation, readonly string[]> = {
+  status: [],
+  'secrets/inspect': ['scope', 'name'],
+  'secrets/list': ['scope', 'after', 'limit'],
+  'secrets/put': ['scope', 'name', 'value', 'expectedRevision'],
+  'secrets/resolve': ['scope', 'selector'],
+  'secrets/delete': ['scope', 'name', 'expectedRevision'],
+  'tokens/issue': [
+    'kind',
+    'namespace',
+    'ownerUserId',
+    'workspaceId',
+    'consumerId',
+    'capabilities',
+    'expiresInSeconds',
+  ],
+  'tokens/list': ['after', 'limit'],
+  'tokens/revoke': ['id'],
+  'audit/read': ['after', 'through', 'limit'],
+};
+function parseSelector(value: unknown): NonNullable<OperationInput['selector']> {
+  const selector = object(value, ['name', 'ref'], []);
+  if (Object.keys(selector).length !== 1) fail('invalid_request');
+  if (selector.name !== undefined) return { name: identifier(selector.name) };
+  const ref = object(selector.ref, ['id', 'revision']);
+  return { ref: { id: identifier(ref.id), revision: integer(ref.revision, 1) } };
+}
+function parseTokenPolicy(r: Record<string, unknown>): TokenPolicy {
+  if (r.kind !== 'service' && r.kind !== 'audit-reader') fail('invalid_request');
+  if (
+    !Array.isArray(r.capabilities) ||
+    !r.capabilities.length ||
+    r.capabilities.length > 4 ||
+    new Set(r.capabilities).size !== r.capabilities.length
+  )
+    fail('invalid_request');
+  const allowed = r.kind === 'audit-reader' ? ['audit'] : [...SERVICE_CAPABILITIES];
+  if (r.capabilities.some((cap) => !allowed.includes(cap))) fail('invalid_request');
+  const policy: TokenPolicy = {
+    kind: r.kind,
+    capabilities: r.capabilities as TokenPolicy['capabilities'],
+    expiresInSeconds: integer(r.expiresInSeconds, 1, MAX_TOKEN_LIFETIME_SECONDS),
   };
-  const r = object(input, ['context', ...fields[operation]], ['context']);
+  if (r.kind === 'service') {
+    policy.namespace = identifier(r.namespace);
+    for (const field of ['ownerUserId', 'workspaceId', 'consumerId'] as const)
+      if (r[field] !== undefined) policy[field] = identifier(r[field]);
+  } else if (
+    ['namespace', 'ownerUserId', 'workspaceId', 'consumerId'].some(
+      (field) => r[field] !== undefined,
+    )
+  )
+    fail('invalid_request');
+  return policy;
+}
+export function parseInput(operation: Operation, input: unknown): OperationInput {
+  const r = object(input, ['context', ...INPUT_FIELDS[operation]], ['context']);
   const out: OperationInput = { context: parseContext(r.context) };
   if (operation.startsWith('secrets/')) out.scope = parseScope(r.scope);
   if (['secrets/inspect', 'secrets/put', 'secrets/delete'].includes(operation))
@@ -179,48 +284,13 @@ export function parseInput(operation: Operation, input: unknown): OperationInput
     if (Buffer.byteLength(r.value) > MAX_VALUE) fail('too_large', 413);
     out.value = r.value;
   }
-  if (operation === 'secrets/resolve') {
-    const s = object(r.selector, ['name', 'ref'], []);
-    if (Object.keys(s).length !== 1) fail('invalid_request');
-    if (s.name !== undefined) out.selector = { name: identifier(s.name) };
-    else {
-      const ref = object(s.ref, ['id', 'revision']);
-      out.selector = { ref: { id: identifier(ref.id), revision: integer(ref.revision, 1) } };
-    }
-  }
+  if (operation === 'secrets/resolve') out.selector = parseSelector(r.selector);
   if (operation === 'secrets/list' || operation === 'tokens/list') {
     if (r.after !== undefined) out.after = identifier(r.after);
     out.limit = r.limit === undefined ? 100 : integer(r.limit, 1, 100);
   }
   if (operation === 'tokens/revoke') out.id = identifier(r.id);
-  if (operation === 'tokens/issue') {
-    if (r.kind !== 'service' && r.kind !== 'audit-reader') fail('invalid_request');
-    if (
-      !Array.isArray(r.capabilities) ||
-      !r.capabilities.length ||
-      r.capabilities.length > 4 ||
-      new Set(r.capabilities).size !== r.capabilities.length
-    )
-      fail('invalid_request');
-    const allowed = r.kind === 'audit-reader' ? ['audit'] : ['metadata', 'read', 'write', 'delete'];
-    if (r.capabilities.some((cap) => !allowed.includes(cap))) fail('invalid_request');
-    const policy: TokenPolicy = {
-      kind: r.kind,
-      capabilities: r.capabilities as TokenPolicy['capabilities'],
-      expiresInSeconds: integer(r.expiresInSeconds, 1, 90 * 86400),
-    };
-    if (r.kind === 'service') {
-      policy.namespace = identifier(r.namespace);
-      for (const field of ['ownerUserId', 'workspaceId', 'consumerId'] as const)
-        if (r[field] !== undefined) policy[field] = identifier(r[field]);
-    } else if (
-      ['namespace', 'ownerUserId', 'workspaceId', 'consumerId'].some(
-        (field) => r[field] !== undefined,
-      )
-    )
-      fail('invalid_request');
-    out.policy = policy;
-  }
+  if (operation === 'tokens/issue') out.policy = parseTokenPolicy(r);
   if (operation === 'audit/read') {
     out.after = r.after === null ? null : parseCursor(r.after);
     if (r.through !== undefined) out.through = parseCursor(r.through);
@@ -232,55 +302,58 @@ export function parseInput(operation: Operation, input: unknown): OperationInput
 }
 
 /** Wire response validation; no remote response is trusted by a TypeScript cast. */
-export function parseResponse(operation: Operation, value: unknown): unknown {
-  const reference = (value: unknown) => {
-    const r = object(value, ['id', 'revision']);
-    identifier(r.id);
-    integer(r.revision, 1);
-  };
-  const meta = (value: unknown) => {
-    const r = object(value, ['ref', 'name', 'state', 'updatedAt']);
-    reference(r.ref);
-    identifier(r.name);
-    if (
-      !['available', 'deleted'].includes(r.state as string) ||
-      typeof r.updatedAt !== 'string' ||
-      !Number.isFinite(Date.parse(r.updatedAt))
-    )
-      fail('invalid_response', 503);
-  };
-  const tokenMeta = (value: unknown) => {
-    const r = object(value, [
-      'id',
-      'kind',
-      'namespace',
-      'ownerUserId',
-      'workspaceId',
-      'consumerId',
-      'capabilities',
-      'expiresAt',
-      'revokedAt',
-      'createdAt',
-    ]);
-    identifier(r.id);
-    integer(r.createdAt);
-    if (r.expiresAt !== null) integer(r.expiresAt);
-    if (r.revokedAt !== null) integer(r.revokedAt);
-    if (
-      !['service', 'operator', 'audit-reader'].includes(r.kind as string) ||
-      !Array.isArray(r.capabilities) ||
-      r.capabilities.some((x) => !['metadata', 'read', 'write', 'delete', 'audit'].includes(x))
-    )
-      fail('invalid_response', 503);
-    for (const key of ['namespace', 'ownerUserId', 'workspaceId', 'consumerId'])
-      if (r[key] !== null) identifier(r[key]);
-  };
+function validateReference(value: unknown): void {
+  const r = object(value, ['id', 'revision']);
+  identifier(r.id);
+  integer(r.revision, 1);
+}
+function validateMetadata(value: unknown): void {
+  const r = object(value, ['ref', 'name', 'state', 'updatedAt']);
+  validateReference(r.ref);
+  identifier(r.name);
+  if (
+    !['available', 'deleted'].includes(r.state as string) ||
+    typeof r.updatedAt !== 'string' ||
+    !Number.isFinite(Date.parse(r.updatedAt))
+  )
+    fail('invalid_response', 503);
+}
+function validateTokenMetadata(value: unknown): void {
+  const r = object(value, [
+    'id',
+    'kind',
+    'namespace',
+    'ownerUserId',
+    'workspaceId',
+    'consumerId',
+    'capabilities',
+    'expiresAt',
+    'revokedAt',
+    'createdAt',
+  ]);
+  identifier(r.id);
+  integer(r.createdAt);
+  if (r.expiresAt !== null) integer(r.expiresAt);
+  if (r.revokedAt !== null) integer(r.revokedAt);
+  if (
+    !['service', 'operator', 'audit-reader'].includes(r.kind as string) ||
+    !Array.isArray(r.capabilities) ||
+    r.capabilities.some((x) => !['metadata', 'read', 'write', 'delete', 'audit'].includes(x))
+  )
+    fail('invalid_response', 503);
+  for (const key of ['namespace', 'ownerUserId', 'workspaceId', 'consumerId'])
+    if (r[key] !== null) identifier(r[key]);
+}
+export function parseResponse<O extends Operation>(
+  operation: O,
+  value: unknown,
+): OperationResults[O] {
   if (operation === 'secrets/inspect') {
-    if (value !== null) meta(value);
-  } else if (operation === 'secrets/put' || operation === 'secrets/delete') meta(value);
+    if (value !== null) validateMetadata(value);
+  } else if (operation === 'secrets/put' || operation === 'secrets/delete') validateMetadata(value);
   else if (operation === 'secrets/resolve') {
     const r = object(value, ['value', 'meta']);
-    meta(r.meta);
+    validateMetadata(r.meta);
     if (
       typeof r.value !== 'string' ||
       Buffer.byteLength(r.value) > MAX_VALUE ||
@@ -290,20 +363,21 @@ export function parseResponse(operation: Operation, value: unknown): unknown {
   } else if (operation === 'secrets/list' || operation === 'tokens/list') {
     const r = object(value, ['items', 'next'], ['items']);
     if (!Array.isArray(r.items) || r.items.length > 100) fail('invalid_response', 503);
-    for (const item of r.items) (operation === 'secrets/list' ? meta : tokenMeta)(item);
+    for (const item of r.items)
+      (operation === 'secrets/list' ? validateMetadata : validateTokenMetadata)(item);
     if (r.next !== undefined) identifier(r.next);
   } else if (operation === 'tokens/issue') {
     const r = object(value, ['token', 'meta']);
-    tokenMeta(r.meta);
-    if (typeof r.token !== 'string' || !/^ors1\.[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/.test(r.token))
+    validateTokenMetadata(r.meta);
+    if (typeof r.token !== 'string' || !CREDENTIAL_PATTERN.test(r.token))
       fail('invalid_response', 503);
-  } else if (operation === 'tokens/revoke') tokenMeta(value);
+  } else if (operation === 'tokens/revoke') validateTokenMetadata(value);
   else if (operation === 'status') {
     const r = object(value, ['vaultId', 'protocolVersion', 'expiresAt', 'auditSeq', 'storage']);
     if (
       typeof r.vaultId !== 'string' ||
-      !/^[a-f0-9]{32}$/.test(r.vaultId) ||
-      r.protocolVersion !== 1
+      !ID_PATTERN.test(r.vaultId) ||
+      r.protocolVersion !== PROTOCOL_VERSION
     )
       fail('invalid_response', 503);
     integer(r.auditSeq, 1);
@@ -337,12 +411,12 @@ export function parseResponse(operation: Operation, value: unknown): unknown {
     for (const event of r.events) {
       const row = object(event, ['seq', 'previousMac', 'event', 'mac']);
       parseCursor({ seq: row.seq, mac: row.mac });
-      if (typeof row.previousMac !== 'string' || !/^[a-f0-9]{64}$/.test(row.previousMac))
+      if (typeof row.previousMac !== 'string' || !MAC_PATTERN.test(row.previousMac))
         fail('invalid_response', 503);
       parseAuditEvent(row.event);
     }
   }
-  return value;
+  return value as OperationResults[O];
 }
 export function parseAuditEvent(value: unknown): void {
   const r = object(
@@ -380,29 +454,31 @@ export function parseAuditEvent(value: unknown): void {
     if (r[key] !== undefined && (typeof r[key] !== 'string' || !/^[a-f0-9]{32,64}$/.test(r[key])))
       fail('integrity_failure', 503);
   if (r.revision !== undefined) integer(r.revision, 1);
-  if (r.detail !== undefined) {
-    const detail = object(
-      r.detail,
-      ['after', 'through', 'returned', 'priorReceipt', 'targetTokenId', 'wrapCount', 'recordMac'],
-      [],
-    );
-    for (const key of ['after', 'through', 'returned'])
-      if (detail[key] !== undefined) integer(detail[key]);
-    if (
-      detail.targetTokenId !== undefined &&
-      (typeof detail.targetTokenId !== 'string' || !/^[a-f0-9]{32}$/.test(detail.targetTokenId))
-    )
-      fail('integrity_failure', 503);
-    if (detail.wrapCount !== undefined) integer(detail.wrapCount, 0, MAX_WRAPS);
-    if (
-      detail.recordMac !== undefined &&
-      (typeof detail.recordMac !== 'string' || !/^[a-f0-9]{64}$/.test(detail.recordMac))
-    )
-      fail('integrity_failure', 503);
-    if (detail.priorReceipt !== undefined) {
-      const receipt = object(detail.priorReceipt, ['vaultId', 'seq', 'mac']);
-      identifier(receipt.vaultId);
-      parseCursor({ seq: receipt.seq, mac: receipt.mac });
-    }
+  if (r.detail !== undefined) validateAuditDetail(r.detail);
+}
+
+function validateAuditDetail(value: unknown): void {
+  const detail = object(
+    value,
+    ['after', 'through', 'returned', 'priorReceipt', 'targetTokenId', 'wrapCount', 'recordMac'],
+    [],
+  );
+  for (const key of ['after', 'through', 'returned'])
+    if (detail[key] !== undefined) integer(detail[key]);
+  if (
+    detail.targetTokenId !== undefined &&
+    (typeof detail.targetTokenId !== 'string' || !ID_PATTERN.test(detail.targetTokenId))
+  )
+    fail('integrity_failure', 503);
+  if (detail.wrapCount !== undefined) integer(detail.wrapCount, 0, MAX_WRAPS);
+  if (
+    detail.recordMac !== undefined &&
+    (typeof detail.recordMac !== 'string' || !MAC_PATTERN.test(detail.recordMac))
+  )
+    fail('integrity_failure', 503);
+  if (detail.priorReceipt !== undefined) {
+    const receipt = object(detail.priorReceipt, ['vaultId', 'seq', 'mac']);
+    identifier(receipt.vaultId);
+    parseCursor({ seq: receipt.seq, mac: receipt.mac });
   }
 }

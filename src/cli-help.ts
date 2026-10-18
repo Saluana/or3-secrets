@@ -1,4 +1,5 @@
 const transport = ['socket', 'vault-id', 'token-file'];
+const transportOptions = ['service-uid'];
 const scoped = [...transport, 'namespace', 'owner-user-id', 'workspace-id', 'consumer-id'];
 const onlineExample = '--socket ./run/api.sock --vault-id VAULT_ID --token-file ./service.token';
 const scopeExample = `${onlineExample} \\\n  --namespace example --owner-user-id user --workspace-id workspace --consumer-id plugin`;
@@ -118,11 +119,13 @@ export const cliCommands: Record<string, Command> = {
     ],
   },
   status: {
+    optional: transportOptions,
     summary: 'Check vault identity, credential expiry and storage health.',
     required: transport,
     example: `or3-secrets status ${onlineExample}`,
   },
   put: {
+    optional: transportOptions,
     summary: 'Create or update a secret from standard input.',
     required: [...scoped, 'name', 'expected-revision'],
     example: `or3-secrets put ${scopeExample} \\\n  --name api --expected-revision 0 < ./input-value`,
@@ -135,7 +138,7 @@ export const cliCommands: Record<string, Command> = {
   get: {
     summary: 'Read a secret with explicit plaintext disclosure.',
     required: scoped,
-    optional: ['name', 'ref', 'out-file', 'stdout'],
+    optional: [...transportOptions, 'name', 'ref', 'out-file', 'stdout'],
     example: `or3-secrets get ${scopeExample} \\\n  --name api --out-file ./recovered-value`,
     notes: [
       'Choose exactly one selector: --name NAME or --ref ID:REVISION.',
@@ -144,6 +147,7 @@ export const cliCommands: Record<string, Command> = {
     ],
   },
   inspect: {
+    optional: transportOptions,
     summary: 'Show metadata and current revision without reading plaintext.',
     required: [...scoped, 'name'],
     example: `or3-secrets inspect ${scopeExample} --name api`,
@@ -151,10 +155,11 @@ export const cliCommands: Record<string, Command> = {
   list: {
     summary: 'List secret metadata within one scope.',
     required: scoped,
-    optional: ['after', 'limit'],
+    optional: [...transportOptions, 'after', 'limit'],
     example: `or3-secrets list ${scopeExample} --limit 100`,
   },
   delete: {
+    optional: transportOptions,
     summary: 'Delete a secret at its current revision.',
     required: [...scoped, 'name', 'expected-revision'],
     example: `or3-secrets delete ${scopeExample} --name api --expected-revision 1`,
@@ -165,7 +170,7 @@ export const cliCommands: Record<string, Command> = {
   'token issue': {
     summary: 'Issue a scoped, expiring credential into a new private file.',
     required: [...transport, 'kind', 'capabilities', 'expires-in', 'out-file'],
-    optional: ['namespace', 'owner-user-id', 'workspace-id', 'consumer-id'],
+    optional: [...transportOptions, 'namespace', 'owner-user-id', 'workspace-id', 'consumer-id'],
     example: `or3-secrets token issue --socket ./run/api.sock --vault-id VAULT_ID \\\n  --token-file ./operator.token --kind service --namespace example \\\n  --owner-user-id user --workspace-id workspace --consumer-id plugin \\\n  --capabilities metadata,read,write,delete --expires-in 1h --out-file ./service.token`,
     notes: [
       'Service tokens require --namespace. Restrict owner/workspace/consumer whenever possible.',
@@ -176,11 +181,12 @@ export const cliCommands: Record<string, Command> = {
   'token list': {
     summary: 'List credential metadata using operator authority.',
     required: transport,
-    optional: ['after', 'limit'],
+    optional: [...transportOptions, 'after', 'limit'],
     example:
       'or3-secrets token list --socket ./run/api.sock --vault-id VAULT_ID --token-file ./operator.token',
   },
   'token revoke': {
+    optional: transportOptions,
     summary: 'Revoke a credential by its ID using operator authority.',
     required: [...transport, 'id'],
     example:
@@ -189,7 +195,7 @@ export const cliCommands: Record<string, Command> = {
   'audit read': {
     summary: 'Export a bounded page of authenticated audit events.',
     required: transport,
-    optional: ['after', 'through', 'limit', 'out-file'],
+    optional: [...transportOptions, 'after', 'through', 'limit', 'out-file'],
     example:
       'or3-secrets audit read --socket ./run/api.sock --vault-id VAULT_ID --token-file ./audit.token --limit 100 --out-file ./audit-page.json',
     notes: [
@@ -237,11 +243,6 @@ export const cliCommands: Record<string, Command> = {
     ],
   },
 };
-
-for (const command of Object.values(cliCommands)) {
-  if (command.required.includes('token-file'))
-    command.optional = [...(command.optional ?? []), 'service-uid'];
-}
 
 export function cliHelp(command = ''): string | undefined {
   const definition = Object.hasOwn(cliCommands, command) ? cliCommands[command] : undefined;

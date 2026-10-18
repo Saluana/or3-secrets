@@ -387,14 +387,14 @@ try {
   };
   const inventory = await client.list({ scope });
   check(
-    inventory.items.length === 1 && inventory.items[0].name === 'remembered',
+    inventory.items.length === 1 && inventory.items[0]!.name === 'remembered',
     'Session-only secret persisted in vault',
   );
   let staleRefRefused = false;
   try {
     await client.resolve({
       scope,
-      selector: { ref: { id: inventory.items[0].ref.id, revision: reload.oldRevision } },
+      selector: { ref: { id: inventory.items[0]!.ref.id, revision: reload.oldRevision } },
     });
   } catch (error) {
     staleRefRefused = (error as { code: string }).code === 'not_found';
@@ -534,7 +534,7 @@ try {
     const r=await fetch('/api/plugins/secrets',{method:'POST',headers:{'content-type':'application/json','x-or3-plugin-intent':'plugin'},body:'{}'});check(r.status===404,'Unselected secret route exposed');return {advertised:false,legacyDeviceRead:true,deviceWrite:true,dexieKeyUnchanged:true,routeStatus:r.status};`);
   const finalInventory = await client.list({ scope });
   check(
-    finalInventory.items.length === 1 && finalInventory.items[0].name === 'remembered',
+    finalInventory.items.length === 1 && finalInventory.items[0]!.name === 'remembered',
     'Provider selection migrated device or Dexie credentials',
   );
   const receipt = {

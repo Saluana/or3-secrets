@@ -1,10 +1,10 @@
-import { defineNitroPlugin as defineSecretProvider } from 'nitropack/runtime/plugin';
-import { useRuntimeConfig as readSecretRuntimeConfig } from '#imports';
+import { defineNitroPlugin } from 'nitropack/runtime/plugin';
+import { useRuntimeConfig } from '#imports';
 import { registerSecretStore } from '~~/server/secrets/registry';
 import { createClient, SecretError } from '../client.js';
 
-export default defineSecretProvider(() => {
-  const config = readSecretRuntimeConfig().secrets;
+export default defineNitroPlugin(() => {
+  const config = useRuntimeConfig().secrets;
   if (
     config?.provider === 'or3-secrets' &&
     (!config.namespace || !config.socketPath || !config.tokenFile || !config.vaultId)

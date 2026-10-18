@@ -29,7 +29,7 @@ const plugin = await Bun.build({
   root: 'src',
   target: 'node',
   format: 'esm',
-  bundle: false,
+  // External imports keep this plugin unbundled without an unsupported build option.
   external: ['nitropack/runtime/plugin', '#imports', '~~/*', '../client.js'],
 });
 if (!plugin.success) {

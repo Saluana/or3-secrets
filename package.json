@@ -30,13 +30,15 @@
     "dist",
     "bin",
     "README.md",
-    "docs",
-    "planning/secure-secret-store",
+    "docs/operations.md",
+    "docs/security.md",
+    "docs/assurance.md",
+    "docs/architecture.md",
     "host-compatibility.json"
   ],
   "scripts": {
     "test": "bun test --timeout 30000 tests",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json",
     "build": "bun scripts/build.ts && tsc --emitDeclarationOnly",
     "qualify": "bun scripts/qualify.ts",
     "format": "prettier --write .",
