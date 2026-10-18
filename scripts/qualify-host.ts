@@ -11,8 +11,9 @@ import { chmodSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, r
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 
-const root = resolve(import.meta.dir, '..'), host = resolve(process.env.OR3_SECRETS_HOST_DIR ?? join(root, '../or3-chat'));
+const root = resolve(import.meta.dir, '..'), checkout = resolve(process.env.OR3_SECRETS_HOST_DIR ?? join(root, '../or3-chat'));
 const work = mkdtempSync(process.platform === 'darwin' ? '/private/tmp/ors-host-' : '/tmp/ors-host-');
+const host = join(work, 'host');
 const results = join(root, 'test-results'); mkdirSync(results, { recursive: true });
 const session = `ors-host-${randomBytes(6).toString('hex')}`;
 const children: ChildProcess[] = [];
@@ -24,7 +25,7 @@ for (const key of Object.keys(env)) {
   if (/^(OR3_|NUXT_|VITE_|CLERK_|CONVEX_|OPENROUTER_|AUTH_)/.test(key) || ['SSR_AUTH_ENABLED', 'PORT', 'HOST', 'NITRO_UNIX_SOCKET', 'DOTENV_CONFIG_PATH', 'NODE_OPTIONS'].includes(key)) delete env[key];
 }
 const run = (command: string, args: string[], input?: string) => {
-  const result = spawnSync(command, args, { cwd: host, env, input, encoding: 'utf8', timeout: 60000, maxBuffer: 2 ** 20 });
+  const result = spawnSync(command, args, { cwd: checkout, env, input, encoding: 'utf8', timeout: 60000, maxBuffer: 2 ** 20 });
   if (result.status !== 0) {
     if (command === 'agent-browser') spawnSync(command, ['doctor'], { env, stdio: 'ignore', timeout: 30000 });
     // Inputs may include disposable credentials. Keep diagnostic output private.
@@ -53,8 +54,15 @@ let passed = false;
 try {
   check(Bun.version === '1.3.14', 'Use the pinned Bun 1.3.14 runtime');
   const hostPin = JSON.parse(readFileSync(join(root, 'host-compatibility.json'), 'utf8'));
-  check(run('git', ['-C', host, 'rev-parse', 'HEAD']) === hostPin.revision, 'Use the pinned immutable host checkout');
-  check(!run('git', ['-C', host, 'status', '--porcelain', '--untracked-files=no']), 'Pinned host source must be clean');
+  check(run('git', ['-C', checkout, 'rev-parse', 'HEAD']) === hostPin.revision, 'Use the pinned immutable host checkout');
+  check(!run('git', ['-C', checkout, 'status', '--porcelain', '--untracked-files=no']), 'Pinned host source must be clean');
+  // Generate Nuxt state only beside an export of the pinned sources. The host's
+  // root tsconfig references .nuxt; a relocated buildDir can accidentally depend
+  // on old generated files in a developer checkout.
+  run('git', ['-C', checkout, 'archive', '--format=tar', '--output', join(work, 'host.tar'), hostPin.revision]);
+  mkdirSync(host);
+  run('tar', ['-xf', join(work, 'host.tar'), '-C', host]);
+  symlinkSync(join(checkout, 'node_modules'), join(host, 'node_modules'), 'dir');
   const packageReceipt = JSON.parse(readFileSync(join(results, 'package-receipt.json'), 'utf8'));
   const artifact = join(results, packageReceipt.artifact);
   check(createHash('sha256').update(readFileSync(artifact)).digest('hex') === packageReceipt.artifactSha256, 'Package receipt checksum mismatch');
@@ -83,7 +91,7 @@ try {
   const password = randomBytes(32).toString('base64url');
   writeFileSync(join(work, 'empty.env'), '');
   const layer = join(work, 'layer'); mkdirSync(layer);
-  writeFileSync(join(layer, 'nuxt.config.ts'), `export default defineNuxtConfig({buildDir:${JSON.stringify(join(work, '.nuxt'))},modules:[${JSON.stringify(join(work, 'package/dist/module.js'))}]})`);
+  writeFileSync(join(layer, 'nuxt.config.ts'), `export default defineNuxtConfig({modules:[${JSON.stringify(join(work, 'package/dist/module.js'))}]})`);
   const listener = createServer(); await new Promise<void>(yes => listener.listen(0, '127.0.0.1', yes));
   const port = (listener.address() as { port: number }).port; await new Promise<void>(yes => listener.close(() => yes()));
   const origin = `http://127.0.0.1:${port}`;
