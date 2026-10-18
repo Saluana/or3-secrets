@@ -1,6 +1,6 @@
 # Publishing @or3/secrets
 
-The initial candidate is **0.1.0**. Preparing it does not publish it. Production acceptance remains separate from disposable qualification.
+The initial candidate is **0.1.1**. Preparing it does not publish it. Production acceptance remains separate from disposable qualification.
 
 ## License
 
