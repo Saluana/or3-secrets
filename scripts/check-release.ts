@@ -35,6 +35,7 @@ assert.equal(response.status, 404, 'Version already exists or registry check fai
 const missing = await response.json();
 assert.ok(
   missing === 'Not Found' ||
+    missing === `version not found: ${manifest.version}` ||
     (typeof missing === 'object' &&
       missing !== null &&
       ['Not found', 'version not found'].includes((missing as { error: string }).error)),

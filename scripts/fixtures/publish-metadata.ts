@@ -6,8 +6,8 @@ globalThis.fetch = (async (input, options) => {
     if (process.env.OR3_PUBLISH_FIXTURE_MODE === 'offline')
       throw new Error('fixture-registry-offline');
     return process.env.OR3_PUBLISH_FIXTURE_MODE === 'published'
-      ? Response.json({ version: '0.1.0' })
-      : Response.json('Not Found', { status: 404 });
+      ? Response.json({ version: url.pathname.split('/').at(-1) })
+      : Response.json(`version not found: ${url.pathname.split('/').at(-1)}`, { status: 404 });
   }
   return originalFetch(input, options);
 }) as typeof fetch;
