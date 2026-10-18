@@ -133,4 +133,4 @@ jobs:
       - name: Publish qualified tarball with npm trusted publishing
         run: |
           artifact="$(node -p 'JSON.parse(require("fs").readFileSync("test-results/package-receipt.json", "utf8")).artifact')"
-          npm publish "test-results/$artifact" --access public --provenance --ignore-scripts
+          npm publish "./test-results/$artifact" --access public --provenance --ignore-scripts
