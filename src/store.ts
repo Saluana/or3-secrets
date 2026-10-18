@@ -1,3 +1,20 @@
+import { SCHEMA, configure, schemaCheck } from './schema.js';
+import {
+  scopeOf,
+  scopeArgs,
+  headerFields,
+  secretFields,
+  tokenFields,
+  metadata,
+  parsed,
+  verifySecret,
+  verifyToken,
+  type Header,
+  type SecretRow,
+  type TokenRow,
+  type AuditRow,
+} from './records.js';
+import { ZERO_MAC, verifyHistory } from './history.js';
 import { Database } from 'bun:sqlite';
 import { randomBytes } from 'node:crypto';
 import { closeSync, statSync, copyFileSync, constants } from 'node:fs';
@@ -36,8 +53,9 @@ import {
   MAX_SNAPSHOT,
   MAX_WRAPS,
   parseAuditEvent,
-  parseScope,
   SecretError,
+  type AuditEvent,
+  type AuditPayload,
   type Context,
   type Cursor,
   type Operation,
@@ -47,184 +65,12 @@ import {
   type SecretMeta,
 } from './protocol.js';
 
-const SCHEMA = [
-  `CREATE TABLE vault (id INTEGER PRIMARY KEY CHECK(id=1), vault_id TEXT NOT NULL, format INTEGER NOT NULL CHECK(format=1), wrap_count INTEGER NOT NULL CHECK(wrap_count>=0 AND wrap_count<=1000000), verification TEXT NOT NULL, created_at INTEGER NOT NULL, mac TEXT NOT NULL) STRICT`,
-  `CREATE TABLE secrets (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, owner_user_id TEXT NOT NULL, workspace_id TEXT NOT NULL, consumer_id TEXT NOT NULL, name TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>=1 AND revision<=9007199254740990), state TEXT NOT NULL CHECK(state IN ('available','deleted')), updated_at INTEGER NOT NULL, envelope TEXT, mac TEXT NOT NULL, CHECK((state='available' AND envelope IS NOT NULL) OR (state='deleted' AND envelope IS NULL))) STRICT`,
-  `CREATE UNIQUE INDEX secrets_scope ON secrets(namespace,owner_user_id,workspace_id,consumer_id,name)`,
-  `CREATE TABLE tokens (id TEXT PRIMARY KEY, digest TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('operator','service','audit-reader')), namespace TEXT, owner_user_id TEXT, workspace_id TEXT, consumer_id TEXT, capabilities TEXT NOT NULL, expires_at INTEGER, revoked_at INTEGER, created_at INTEGER NOT NULL, mac TEXT NOT NULL) STRICT`,
-  `CREATE TABLE audit (seq INTEGER PRIMARY KEY CHECK(seq>=1 AND seq<=9007199254740990), previous_mac TEXT NOT NULL, payload TEXT NOT NULL, mac TEXT NOT NULL) STRICT`,
-];
-const SCHEMA_NAMES = ['vault', 'secrets', 'secrets_scope', 'tokens', 'audit'];
-const AUTO_INDEXES = new Map([
-  ['sqlite_autoindex_secrets_1', 'secrets'],
-  ['sqlite_autoindex_tokens_1', 'tokens'],
-]);
-const ZERO_MAC = '0'.repeat(64);
 const VERIFY = Buffer.from('or3-secrets master-key verification v1');
 
-type Header = {
-  id: number;
-  vault_id: string;
-  format: number;
-  wrap_count: number;
-  verification: string;
-  created_at: number;
-  mac: string;
-};
-type SecretRow = {
-  id: string;
-  namespace: string;
-  owner_user_id: string;
-  workspace_id: string;
-  consumer_id: string;
-  name: string;
-  revision: number;
-  state: 'available' | 'deleted';
-  updated_at: number;
-  envelope: string | null;
-  mac: string;
-};
-type TokenRow = {
-  id: string;
-  digest: string;
-  kind: 'operator' | 'service' | 'audit-reader';
-  namespace: string | null;
-  owner_user_id: string | null;
-  workspace_id: string | null;
-  consumer_id: string | null;
-  capabilities: string;
-  expires_at: number | null;
-  revoked_at: number | null;
-  created_at: number;
-  mac: string;
-};
-export type AuditEvent = { seq: number; previousMac: string; event: AuditPayload; mac: string };
-type AuditRow = { seq: number; previous_mac: string; payload: string; mac: string };
-type AuditPayload = {
-  at: string;
-  operation: string;
-  outcome: string;
-  requestId: string;
-  tokenId?: string;
-  scopeId?: string;
-  recordId?: string;
-  revision?: number;
-  actorId?: string;
-  activationId?: string;
-  detail?: {
-    after?: number;
-    through?: number;
-    returned?: number;
-    priorReceipt?: Receipt;
-    targetTokenId?: string;
-    wrapCount?: number;
-    recordMac?: string;
-  };
-};
 type Keys = { wrap: Buffer; record: Buffer; audit: Buffer; verify: Buffer };
 export type InitOptions = { vaultDir: string; keyFile: string; operatorFile: string };
-function scopeOf(row: SecretRow): Scope {
-  return {
-    namespace: row.namespace,
-    ownerUserId: row.owner_user_id,
-    workspaceId: row.workspace_id,
-    consumerId: row.consumer_id,
-  };
-}
-function scopeArgs(scope: Scope): string[] {
-  return [scope.namespace, scope.ownerUserId, scope.workspaceId, scope.consumerId];
-}
-function headerFields(h: Header) {
-  return [h.id, h.vault_id, h.format, h.wrap_count, h.verification, h.created_at];
-}
-function secretFields(r: SecretRow) {
-  return [
-    r.id,
-    r.namespace,
-    r.owner_user_id,
-    r.workspace_id,
-    r.consumer_id,
-    r.name,
-    r.revision,
-    r.state,
-    r.updated_at,
-    r.envelope,
-  ];
-}
-function tokenFields(r: TokenRow) {
-  return [
-    r.id,
-    r.digest,
-    r.kind,
-    r.namespace,
-    r.owner_user_id,
-    r.workspace_id,
-    r.consumer_id,
-    r.capabilities,
-    r.expires_at,
-    r.revoked_at,
-    r.created_at,
-  ];
-}
-function metadata(r: SecretRow): SecretMeta {
-  return {
-    ref: { id: r.id, revision: r.revision },
-    name: r.name,
-    state: r.state,
-    updatedAt: new Date(r.updated_at).toISOString(),
-  };
-}
-function parsed<T>(text: string): T {
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    fail('integrity_failure', 503);
-  }
-}
-function configure(db: Database): void {
-  db.exec(
-    'PRAGMA busy_timeout=1000; PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA journal_mode=DELETE; PRAGMA locking_mode=EXCLUSIVE; PRAGMA synchronous=EXTRA;',
-  );
-  const expected = {
-    trusted_schema: 0,
-    foreign_keys: 1,
-    journal_mode: 'delete',
-    locking_mode: 'exclusive',
-    synchronous: 3,
-  };
-  for (const [key, value] of Object.entries(expected))
-    if (Object.values(db.query(`PRAGMA ${key}`).get() as object)[0] !== value)
-      fail('unsupported_storage', 503);
-  const attached = db.query('PRAGMA database_list').all() as { name: string }[];
-  if (attached.length !== 1 || attached[0]!.name !== 'main') fail('integrity_failure', 503);
-  db.exec('BEGIN EXCLUSIVE; COMMIT;');
-}
-function schemaCheck(db: Database): void {
-  const objects = db.query('SELECT type,name,tbl_name,sql FROM sqlite_schema').all() as {
-    type: string;
-    name: string;
-    tbl_name: string;
-    sql: string | null;
-  }[];
-  if (objects.length !== SCHEMA.length + AUTO_INDEXES.size) fail('integrity_failure', 503);
-  for (const object of objects) {
-    const index = SCHEMA_NAMES.indexOf(object.name);
-    if (index >= 0) {
-      if (
-        object.sql !== SCHEMA[index] ||
-        object.type !== (object.name === 'secrets_scope' ? 'index' : 'table')
-      )
-        fail('integrity_failure', 503);
-    } else if (
-      object.type !== 'index' ||
-      object.sql !== null ||
-      AUTO_INDEXES.get(object.name) !== object.tbl_name
-    )
-      fail('integrity_failure', 503);
-  }
-  if (Object.values(db.query('PRAGMA integrity_check(1)').get() as object)[0] !== 'ok')
-    fail('integrity_failure', 503);
-}
+
+export type { AuditEvent } from './protocol.js';
 
 export class Vault {
   readonly dbPath: string;
@@ -342,7 +188,7 @@ export class Vault {
         vault.persistHeader(true);
         if (source) {
           for (const row of source.secretRows()) {
-            source.verifySecret(row);
+            verifySecret(row, source.keys.record);
             const copied = { ...row };
             if (row.state === 'available') {
               const value = source.plaintext(row);
@@ -352,7 +198,7 @@ export class Vault {
             vault.insertSecret(copied);
           }
           for (const row of source.tokenRows()) {
-            source.verifyToken(row);
+            verifyToken(row, source.keys.record);
             const copied = { ...row, revoked_at: row.revoked_at ?? Date.now() };
             copied.mac = mac(vault.keys.record, 'token', tokenFields(copied));
             vault.insertToken(copied);
@@ -464,134 +310,17 @@ export class Vault {
       marker.fill(0);
     }
   }
-  private verifySecret(row: SecretRow): void {
-    if (!equal(row.mac, mac(this.keys.record, 'secret', secretFields(row))))
-      fail('integrity_failure', 503);
-    identifier(row.id);
-    parseScope(scopeOf(row));
-    identifier(row.name);
-    integer(row.revision, 1);
-    integer(row.updated_at);
-    if (
-      (row.state !== 'available' && row.state !== 'deleted') ||
-      (row.state === 'available'
-        ? typeof row.envelope !== 'string' || row.envelope.length > 67000
-        : row.envelope !== null)
-    )
-      fail('integrity_failure', 503);
-  }
-  private verifyToken(row: TokenRow): void {
-    if (
-      !equal(row.mac, mac(this.keys.record, 'token', tokenFields(row))) ||
-      !/^[a-f0-9]{32}$/.test(row.id) ||
-      !/^[a-f0-9]{64}$/.test(row.digest)
-    )
-      fail('integrity_failure', 503);
-    integer(row.created_at);
-    if (row.revoked_at !== null) integer(row.revoked_at);
-    const caps = parsed<unknown>(row.capabilities);
-    if (!Array.isArray(caps) || new Set(caps).size !== caps.length) fail('integrity_failure', 503);
-    if (row.kind === 'operator') {
-      if (
-        row.expires_at !== null ||
-        caps.length ||
-        [row.namespace, row.owner_user_id, row.workspace_id, row.consumer_id].some(
-          (x) => x !== null,
-        )
-      )
-        fail('integrity_failure', 503);
-    } else {
-      integer(row.expires_at, 1);
-      if (
-        !caps.length ||
-        caps.some(
-          (cap) =>
-            !(
-              row.kind === 'audit-reader' ? ['audit'] : ['metadata', 'read', 'write', 'delete']
-            ).includes(cap),
-        )
-      )
-        fail('integrity_failure', 503);
-      if (row.kind === 'audit-reader') {
-        if (
-          [row.namespace, row.owner_user_id, row.workspace_id, row.consumer_id].some(
-            (x) => x !== null,
-          )
-        )
-          fail('integrity_failure', 503);
-      } else {
-        identifier(row.namespace);
-        for (const field of [row.owner_user_id, row.workspace_id, row.consumer_id])
-          if (field !== null) identifier(field);
-      }
-    }
-  }
   verify(): Receipt {
     schemaCheck(this.db);
     this.verifyHeader();
-    // Row MACs alone cannot detect removal or replay of an older, valid row.
-    // Reconcile the current inventory with the authenticated mutation history.
-    // Negative revisions represent tombstones; token values represent revocation.
-    const secrets = new Map<string, { revision: number; mac: string }>(),
-      tokens = new Map<string, boolean>();
-    let wrapCount: number | undefined;
-    let previous = ZERO_MAC,
-      seq = 0;
-    for (const row of this.auditRows()) {
-      if (
-        row.seq !== seq + 1 ||
-        row.previous_mac !== previous ||
-        Buffer.byteLength(row.payload) > 4096 ||
-        !equal(row.mac, mac(this.keys.audit, 'event', [row.seq, row.previous_mac, row.payload]))
-      )
-        fail('integrity_failure', 503);
-      const event = parsed<AuditPayload>(row.payload);
-      parseAuditEvent(event);
-      if (seq === 0 && event.operation !== 'init') fail('integrity_failure', 503);
-      if (event.outcome === 'success') {
-        if (['init', 'restore', 'rekey'].includes(event.operation)) {
-          if (
-            !event.tokenId ||
-            tokens.has(event.tokenId) ||
-            (event.operation === 'init' && seq !== 0) ||
-            event.detail?.wrapCount === undefined
-          )
-            fail('integrity_failure', 503);
-          for (const id of tokens.keys()) tokens.set(id, true);
-          tokens.set(event.tokenId, false);
-          wrapCount = event.detail.wrapCount;
-        } else if (event.operation === 'tokens/issue' || event.operation === 'tokens/revoke') {
-          const id = event.detail?.targetTokenId;
-          if (!id || (event.operation === 'tokens/issue' ? tokens.has(id) : !tokens.has(id)))
-            fail('integrity_failure', 503);
-          tokens.set(id, event.operation === 'tokens/revoke');
-        } else if (event.operation === 'secrets/put' || event.operation === 'secrets/delete') {
-          if (
-            !event.recordId ||
-            !event.detail?.recordMac ||
-            event.revision !== Math.abs(secrets.get(event.recordId)?.revision ?? 0) + 1
-          )
-            fail('integrity_failure', 503);
-          secrets.set(event.recordId, {
-            revision: event.operation === 'secrets/delete' ? -event.revision : event.revision,
-            mac: event.detail.recordMac,
-          });
-          if (event.operation === 'secrets/put') {
-            if (
-              event.detail?.wrapCount === undefined ||
-              event.detail.wrapCount !== (wrapCount ?? 0) + 1
-            )
-              fail('integrity_failure', 503);
-            wrapCount = event.detail.wrapCount;
-          }
-        }
-      }
-      previous = row.mac;
-      seq = integer(row.seq, 1);
-    }
-    if (!seq || wrapCount !== this.header.wrap_count) fail('integrity_failure', 503);
+    const {
+      secrets,
+      tokens,
+      seq,
+      mac: headMac,
+    } = verifyHistory(this.auditRows(), this.keys.audit, this.header.wrap_count);
     for (const row of this.secretRows()) {
-      this.verifySecret(row);
+      verifySecret(row, this.keys.record);
       if (row.state === 'available') this.plaintext(row);
       const committed = secrets.get(row.id);
       if (
@@ -602,12 +331,12 @@ export class Vault {
       secrets.delete(row.id);
     }
     for (const row of this.tokenRows()) {
-      this.verifyToken(row);
+      verifyToken(row, this.keys.record);
       if (tokens.get(row.id) !== (row.revoked_at !== null)) fail('integrity_failure', 503);
       tokens.delete(row.id);
     }
     if (secrets.size || tokens.size) fail('integrity_failure', 503);
-    return { vaultId: this.vaultId, seq, mac: previous };
+    return { vaultId: this.vaultId, seq, mac: headMac };
   }
   receipt(): Receipt {
     const row = this.db
@@ -709,7 +438,7 @@ export class Vault {
     return JSON.stringify(encrypted);
   }
   private plaintext(row: SecretRow): string {
-    this.verifySecret(row);
+    verifySecret(row, this.keys.record);
     if (row.state !== 'available' || row.envelope === null) fail('not_found', 404);
     return decryptValue(
       this.keys.wrap,
@@ -726,7 +455,7 @@ export class Vault {
     if (!id) fail('unauthorized', 401);
     const row = this.db.query('SELECT * FROM tokens WHERE id=?').get(id) as TokenRow | null;
     if (!row) fail('unauthorized', 401);
-    this.verifyToken(row);
+    verifyToken(row, this.keys.record);
     if (
       !equal(row.digest, digest(raw)) ||
       row.revoked_at !== null ||
@@ -902,7 +631,7 @@ export class Vault {
       const rows = this.db
         .query('SELECT * FROM tokens WHERE id>? ORDER BY id LIMIT ?')
         .all((input.after as string) ?? '', input.limit! + 1) as TokenRow[];
-      for (const row of rows) this.verifyToken(row);
+      for (const row of rows) verifyToken(row, this.keys.record);
       this.audit(operation, input.context, token.id, undefined);
       return {
         items: rows.slice(0, input.limit).map((row) => this.tokenMeta(row)),
@@ -914,7 +643,7 @@ export class Vault {
         .query('SELECT * FROM tokens WHERE id=?')
         .get(input.id!) as TokenRow | null;
       if (!row) fail('not_found', 404);
-      this.verifyToken(row);
+      verifyToken(row, this.keys.record);
       if (row.kind === 'operator') fail('forbidden', 403);
       row.revoked_at = Date.now();
       row.mac = mac(this.keys.record, 'token', tokenFields(row));
@@ -935,7 +664,7 @@ export class Vault {
         )
         .all(...scopeArgs(scope), (input.after as string) ?? '', input.limit! + 1) as SecretRow[];
       for (const row of rows) {
-        this.verifySecret(row);
+        verifySecret(row, this.keys.record);
         if (scopeArgs(scopeOf(row)).some((value, index) => value !== scopeArgs(scope)[index]))
           fail('integrity_failure', 503);
       }
@@ -960,7 +689,7 @@ export class Vault {
             .get(...scopeArgs(scope), selector && 'name' in selector ? selector.name : input.name!)
     ) as SecretRow | null;
     if (row) {
-      this.verifySecret(row);
+      verifySecret(row, this.keys.record);
       if (
         scopeArgs(scopeOf(row)).some((value, index) => value !== scopeArgs(scope)[index]) ||
         (selector && 'ref' in selector
