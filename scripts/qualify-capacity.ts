@@ -1,24 +1,51 @@
 // Offline format fixture: genuine aged authenticated history, one 1 GiB SQLite file.
 // This does not expose a service API for manufacturing audit rows.
 import { Database } from 'bun:sqlite';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, statSync, statfsSync } from 'node:fs';
 import { join } from 'node:path';
 import { derive, mac } from '../src/crypto';
 import { Vault } from '../src/store';
 import { backup, restore, rekey, BACKUP_OVERHEAD } from '../src/maintenance';
-import { MAX_SNAPSHOT } from '../src/protocol';
-const root = mkdtempSync(process.platform === 'darwin' ? '/private/tmp/ors-capacity-' : '/tmp/ors-capacity-');
-const vaultDir = join(root, 'vault'), keyFile = join(root, 'master.key');
+import { MAX_SNAPSHOT, parseInput, type Operation } from '../src/protocol';
+import { Fixture, cli, scope } from '../tests/helpers';
+// Selected before measuring this local profile; these are not production SLOs.
+const budgets = { verify: 45000, backup: 60000, restore: 120000, rekey: 120000, peakRssBytes: 512 * 1024 ** 2 };
+const fixture = new Fixture(), root = fixture.root;
+const vaultDir = fixture.vault, keyFile = fixture.key;
 const timings: Record<string, number> = {};
 function measure<T>(name: string, action: () => T): T { const started = performance.now(); try { return action(); } finally { timings[name] = Math.round(performance.now() - started); } }
 try {
-  const init = Vault.create({ vaultDir, keyFile, operatorFile: join(root, 'operator.token') });
+  const storage = statfsSync(root);
+  if (storage.bavail * storage.bsize < 6 * MAX_SNAPSHOT) throw new Error('Capacity qualification needs 6 GiB free disposable storage');
+  const init = { vaultId: fixture.vaultId }, operator = fixture.operator;
+  await fixture.start();
+  const token = await fixture.token();
+  const perform = async (operation: Operation, input: Record<string, unknown>, credential = token.token) => {
+    const result = await fixture.call(operation, input, credential);
+    if (result.status !== 200) throw new Error(`Mixed capacity seed failed: ${operation}`);
+    return result.data;
+  };
+  const seedStarted = performance.now();
+  const value = 'synthetic-capacity-inventory-'.repeat(10);
+  for (let n = 0; n < 2000; n++) await perform('secrets/put', { scope, name: `mixed-${n}`, value, expectedRevision: 0 });
+  for (let n = 0; n < 500; n++) await perform('secrets/delete', { scope, name: `mixed-${n}`, expectedRevision: 1 });
+  for (let n = 1500; n < 2000; n++) await perform('secrets/put', { scope, name: `mixed-${n}`, value: value + 'revision-2', expectedRevision: 1 });
+  for (let n = 0; n < 500; n++) {
+    const issued = await perform('tokens/issue', { kind: 'service', namespace: scope.namespace, capabilities: ['read'], expiresInSeconds: n < 250 ? 1 : 3600 }, operator);
+    if (n >= 250) await perform('tokens/revoke', { id: issued.meta.id }, operator);
+  }
+  for (let n = 0; n < 100; n++) await perform('secrets/resolve', { scope, selector: { name: 'mixed-1999' } });
+  timings.seedMixedInventory = Math.round(performance.now() - seedStarted);
+  await fixture.stop();
+  const verified = cli(['audit', 'verify', '--vault-dir', vaultDir, '--key-file', keyFile]);
+  if (verified.status !== 0) throw new Error('Seeded capacity inventory failed verification');
+  const checkpoint = JSON.parse(verified.stdout);
   const key = derive(readFileSync(keyFile), init.vaultId, 'audit');
   const dbPath = join(vaultDir, 'vault.sqlite'), db = new Database(dbPath);
   // The production schema remains exact; an offline fixture limits allocation to exactly 1 GiB.
   db.exec(`PRAGMA journal_mode=DELETE; PRAGMA synchronous=EXTRA; PRAGMA max_page_count=${MAX_SNAPSHOT / 4096}`);
   const insert = db.query('INSERT INTO audit VALUES(?,?,?,?)');
-  let seq = init.seq, previous = init.mac;
+  let seq = checkpoint.seq, previous = checkpoint.mac;
   measure('ageFixture', () => {
     for (const batch of [2000, 100, 1]) {
     let full = false;
@@ -46,11 +73,21 @@ try {
   });
   db.close(); key.fill(0);
   const size = statSync(dbPath).size;
-  const receipt = measure('verify', () => { const v = Vault.open(vaultDir, keyFile); try { return v.verify(); } finally { v.close(); } });
+  let liveRefusal = '';
+  const receipt = measure('verify', () => { const v = Vault.open(vaultDir, keyFile); try {
+    try { v.perform('status', parseInput('status', { context: { requestId: 'capacity-live-refusal' } }), operator, init.vaultId); }
+    catch (error) { liveRefusal = (error as { code: string }).code; }
+    if (liveRefusal !== 'capacity_reached') throw new Error('Exact-limit inventory was admitted for live work');
+    return v.verify();
+  } finally { v.close(); } });
   const backupFile = join(root, 'snapshot.backup');
   measure('backup', () => backup({ vaultDir, keyFile, outFile: backupFile, receipt }));
   measure('restore', () => restore({ backupFile, keyFile, destination: join(root, 'restored'), newKeyFile: join(root, 'restored.key'), operatorFile: join(root, 'restored.token'), receipt }));
   measure('rekey', () => rekey({ vaultDir, keyFile, destination: join(root, 'rekeyed'), newKeyFile: join(root, 'rekeyed.key'), operatorFile: join(root, 'rekeyed.token'), receipt }));
-  const result = { runtime: Bun.version, platform: process.platform, architecture: process.arch, agedEvents: seq, databaseBytes: size, capBytes: MAX_SNAPSHOT, backupBytes: statSync(backupFile).size, restoredBytes: statSync(join(root, 'restored/vault.sqlite')).size, rekeyedBytes: statSync(join(root, 'rekeyed/vault.sqlite')).size, exactEnvelopeSize: statSync(backupFile).size === size + BACKUP_OVERHEAD, timingsMs: timings, reportedMaxRssRaw: process.resourceUsage().maxRSS, rssBytesAtFinish: process.memoryUsage().rss, powerLoss: 'not qualified' };
+  const peakRssBytes = process.platform === 'linux' ? Number(/^VmHWM:\s+(\d+) kB$/m.exec(readFileSync('/proc/self/status', 'utf8'))?.[1]) * 1024 : process.resourceUsage().maxRSS;
+  for (const name of ['verify', 'backup', 'restore', 'rekey'] as const)
+    if (timings[name]! > budgets[name]) throw new Error(`${name} exceeded the local capacity budget`);
+  if (!Number.isFinite(peakRssBytes) || peakRssBytes > budgets.peakRssBytes) throw new Error('Capacity peak RSS exceeded its local budget');
+  const result = { runtime: Bun.version, platform: process.platform, architecture: process.arch, profile: { liveSecrets: 1500, tombstones: 500, updatedSecrets: 500, expiredTokens: 250, revokedTokens: 250 }, budgets, peakRssBytes, agedEvents: seq, databaseBytes: size, capBytes: MAX_SNAPSHOT, backupBytes: statSync(backupFile).size, restoredBytes: statSync(join(root, 'restored/vault.sqlite')).size, rekeyedBytes: statSync(join(root, 'rekeyed/vault.sqlite')).size, exactEnvelopeSize: statSync(backupFile).size === size + BACKUP_OVERHEAD, liveAdmission: liveRefusal, timingsMs: timings, rssBytesAtFinish: process.memoryUsage().rss, powerLoss: 'not qualified', deploymentAcceptance: false };
   mkdirSync('test-results', { recursive: true }); writeFileSync('test-results/capacity.json', JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
-} finally { rmSync(root, { recursive: true, force: true }); }
+} finally { await fixture.close(); }

@@ -1,5 +1,7 @@
 # Implementation receipt
 
+The [disposable local qualification record](local-qualification.md) records completion of the remaining local tasks and separate production/release gates. Reproduce current evidence with [qualification](qualification.md); measurements below describe the original implementation.
+
 This is the original implementation qualification record. See the subsequent [security review](security-review.md) for findings, repairs, changed development-vault compatibility and current verification; the earlier counts and capacity measurements below remain historical.
 
 Implemented from the updated plan on 2026-10-18. Source base: `or3-secrets` `57035eef0b8205d0c49c00eba66e077e37693e50`, OR3 host `1d6318235e289b041dcdda5e92faed12b60493bc`. Changes remain in the working trees; no release commit/tag, registry publication, deployment or real credential migration occurred. The user's three pre-existing modified OR3 images were preserved.
