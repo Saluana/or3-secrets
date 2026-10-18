@@ -3,9 +3,9 @@
 // Existing service-crash tests cannot reach these maintenance construction stages.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Fixture, cli, scope, project } from '../tests/helpers';
+import { Fixture, cli, scope, project } from './lib/fixture';
 const check = (value: unknown, message: string) => {
   if (!value) throw new Error(message);
 };

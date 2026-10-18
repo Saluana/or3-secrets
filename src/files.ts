@@ -12,7 +12,7 @@ import {
   statfsSync,
 } from 'node:fs';
 import { dirname, resolve, relative, isAbsolute, sep } from 'node:path';
-import { fail } from './protocol.js';
+import { fail, CREDENTIAL_PATTERN } from './protocol.js';
 
 const uid = () => process.getuid?.() ?? fail('unsupported_platform');
 export function safeParents(path: string, owner = uid()): void {
@@ -87,12 +87,16 @@ export function createPrivate(path: string): number {
     0o600,
   );
 }
+/** Complete a synchronous write before the caller syncs or closes its private file. */
+export function writeAll(fd: number, bytes: Buffer): void {
+  let offset = 0;
+  while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
+}
 export function writePrivate(path: string, data: string | Buffer): void {
   const fd = createPrivate(path);
   try {
     const buffer = typeof data === 'string' ? Buffer.from(data) : data;
-    let offset = 0;
-    while (offset < buffer.length) offset += writeSync(fd, buffer, offset, buffer.length - offset);
+    writeAll(fd, buffer);
     fsyncSync(fd);
   } finally {
     closeSync(fd);
@@ -134,7 +138,7 @@ export function readCredential(path: string): string {
   const bytes = readPrivate(path, 256);
   try {
     const text = bytes.toString('utf8').replace(/\n$/, '');
-    if (!/^ors1\.[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/.test(text)) fail('invalid_credential', 401);
+    if (!CREDENTIAL_PATTERN.test(text)) fail('invalid_credential', 401);
     return text;
   } finally {
     bytes.fill(0);

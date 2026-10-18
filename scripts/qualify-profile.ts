@@ -4,7 +4,8 @@
 import { statSync, writeFileSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-import { Fixture, cli, scope, project } from '../tests/helpers';
+import { MAX_LIVE } from '../src/protocol';
+import { Fixture, scope, project } from './lib/fixture';
 const budgets = {
   startupMs: 5000,
   rssBytes: 512 * 1024 ** 2,
@@ -159,7 +160,7 @@ try {
     (name) => statSync(join(f.root, name, 'vault.sqlite')).size,
   );
   check(
-    recoveredSizes.every((size) => size + 1024 ** 2 < 960 * 1024 ** 2),
+    recoveredSizes.every((size) => size + 1024 ** 2 < MAX_LIVE),
     'Recovered vault reached unsupported capacity',
   );
   writeFileSync(

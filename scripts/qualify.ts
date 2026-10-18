@@ -1,13 +1,6 @@
+import { stopChild } from './lib/process';
 import { spawn, spawnSync } from 'node:child_process';
-import {
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  rmSync,
-  readdirSync,
-  statSync,
-} from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 if (Bun.version !== '1.3.14') throw new Error('Qualified Bun 1.3.14 required');
@@ -69,11 +62,7 @@ try {
     throw new Error('Private/developer state in package');
   run(
     'node',
-    [
-      '--input-type=module',
-      '-e',
-      `const p=await import(${JSON.stringify(join(pkg, 'dist/client.js'))});if(typeof p.createClient!=='function')process.exit(2)`,
-    ],
+    [join(root, 'scripts/fixtures/package-client.ts'), join(pkg, 'dist/client.js')],
     work,
   );
   run('node', [join(pkg, 'bin/or3-secrets.mjs'), '--help'], work);
@@ -145,22 +134,23 @@ try {
       ],
       work,
     );
-    const script = `import{createClient}from ${JSON.stringify(join(pkg, 'dist/client.js'))};const c=createClient(${JSON.stringify({ socketPath, tokenFile, vaultId: initialized.vaultId })});const scope={namespace:'package',ownerUserId:'u',workspaceId:'w',consumerId:'p'};const m=await c.put({scope,name:'packaged',value:'synthetic-package-value',expectedRevision:0});const v=await c.resolve({scope,selector:{ref:m.ref}});if(v.value!=='synthetic-package-value')process.exit(2);`;
-    run('node', ['--input-type=module', '-e', script], work);
+    run(
+      'node',
+      [
+        join(root, 'scripts/fixtures/package-client.ts'),
+        join(pkg, 'dist/client.js'),
+        JSON.stringify({ socketPath, tokenFile, vaultId: initialized.vaultId }),
+      ],
+      work,
+    );
   } finally {
-    await new Promise<void>((yes) => {
-      if (child.exitCode !== null) {
-        yes();
-        return;
-      }
-      child.once('exit', () => yes());
-      child.kill('SIGTERM');
-    });
+    await stopChild(child);
   }
+
   // Lockfile JSONC contains version, registry and integrity for every build dependency.
-  const lock = JSON.parse(
-    readFileSync(join(root, 'bun.lock'), 'utf8').replace(/,\s*([}\]])/g, '$1'),
-  );
+  const lock = Bun.JSONC.parse(readFileSync(join(root, 'bun.lock'), 'utf8')) as {
+    packages: Record<string, [string, string, unknown, string]>;
+  };
   const components = Object.entries(
     lock.packages as Record<string, [string, string, unknown, string]>,
   ).map(([name, entry]) => ({

@@ -1,3 +1,4 @@
+import { cleanApplicationEnv, stopChild } from './lib/process';
 // Packaged Nuxt/Node boundary: ambient credentials must receive zero calls;
 // a stable read must succeed, report unavailable during outage, then recover.
 import { spawn, spawnSync } from 'node:child_process';
@@ -10,21 +11,7 @@ const root = resolve(import.meta.dir, '..'),
 const work = mkdtempSync(
   process.platform === 'darwin' ? '/private/tmp/ors-provider-' : '/tmp/ors-provider-',
 );
-const cleanEnv = (input: NodeJS.ProcessEnv) => {
-  const result = { ...input };
-  for (const key of Object.keys(result))
-    if (
-      /^(OR3_|NUXT_|NITRO_|VITE_|AUTH_|CLERK_|CONVEX_|OPENROUTER_)/.test(key) ||
-      ['NODE_OPTIONS', 'DOTENV_CONFIG_PATH'].includes(key)
-    )
-      delete result[key];
-  return {
-    ...result,
-    PATH: `${join(process.execPath, '..')}:${process.env.PATH}`,
-    NUXT_TELEMETRY_DISABLED: '1',
-  };
-};
-let env: NodeJS.ProcessEnv = cleanEnv(process.env);
+let env: NodeJS.ProcessEnv = cleanApplicationEnv(process.env);
 const run = (cmd: string, args: string[], cwd = work, input?: string) => {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout: 120000, env, input });
   if (r.status !== 0) {
@@ -35,23 +22,7 @@ const run = (cmd: string, args: string[], cwd = work, input?: string) => {
   }
   return r.stdout;
 };
-const stop = async (child?: ReturnType<typeof spawn>) => {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise<void>((resolve, reject) => {
-    const killTimer = setTimeout(() => child.kill('SIGKILL'), 5000);
-    const deadline = setTimeout(() => {
-      child.removeListener('exit', exited);
-      reject(new Error('Provider fixture did not exit after SIGKILL'));
-    }, 10000);
-    const exited = () => {
-      clearTimeout(killTimer);
-      clearTimeout(deadline);
-      resolve();
-    };
-    child.once('exit', exited);
-    child.kill('SIGTERM');
-  });
-};
+const stop = stopChild;
 let service: ReturnType<typeof spawn> | undefined,
   server: ReturnType<typeof spawn> | undefined,
   ambient: ReturnType<typeof spawn> | undefined;
@@ -146,7 +117,7 @@ try {
   issue(real);
   issue(other);
   // Deliberately supply a fully capable second synthetic vault as ambient config.
-  env = cleanEnv({
+  env = cleanApplicationEnv({
     ...process.env,
     NUXT_SECRETS_PROVIDER: 'or3-secrets',
     NUXT_SECRETS_NAMESPACE: 'provider',
@@ -243,9 +214,9 @@ try {
   });
   const probe = (outage = false) =>
     run('node', [
-      '--input-type=module',
-      '-e',
-      `import{request}from'node:http';const q=request({socketPath:${JSON.stringify(join(real.dir, 'nuxt.sock'))},path:'/api/probe'},r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>{const d=JSON.parse(b);if(${outage ? "r.statusCode!==503||d.data?.code!=='unavailable'" : 'r.statusCode!==200||!d.ok'})process.exit(2)})});q.on('error',()=>process.exit(3));q.end();`,
+      join(root, 'scripts/fixtures/provider-probe.ts'),
+      join(real.dir, 'nuxt.sock'),
+      String(outage),
     ]);
   probe();
   await stop(service);

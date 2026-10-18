@@ -22,7 +22,7 @@ import { join, dirname, resolve } from 'node:path';
 import {
   derive,
   mac,
-  equal,
+  equalMac,
   encryptValue,
   decryptValue,
   seal,
@@ -47,9 +47,11 @@ import {
 } from './files.js';
 import {
   fail,
-  identifier,
   integer,
   MAX_LIVE,
+  MAX_BODY,
+  MAX_AUDIT_EVENT_BYTES,
+  PROTOCOL_VERSION,
   MAX_SNAPSHOT,
   MAX_WRAPS,
   parseAuditEvent,
@@ -62,9 +64,12 @@ import {
   type OperationInput,
   type Receipt,
   type Scope,
-  type SecretMeta,
 } from './protocol.js';
 
+const OPERATION_STORAGE_RESERVE_BYTES = 1024 ** 2;
+const MAX_AUDIT_READERS = 1024;
+const AUDIT_REQUESTS_PER_SECOND = 5;
+const AUDIT_HEAD_INTERVAL_MS = 30000;
 const VERIFY = Buffer.from('or3-secrets master-key verification v1');
 
 type Keys = { wrap: Buffer; record: Buffer; audit: Buffer; verify: Buffer };
@@ -298,7 +303,7 @@ export class Vault {
     if (
       h.id !== 1 ||
       h.format !== 1 ||
-      !equal(h.mac, mac(this.keys.record, 'header', headerFields(h)))
+      !equalMac(h.mac, mac(this.keys.record, 'header', headerFields(h)))
     )
       fail('integrity_failure', 503);
     integer(h.wrap_count, 0, MAX_WRAPS);
@@ -325,7 +330,7 @@ export class Vault {
       const committed = secrets.get(row.id);
       if (
         committed?.revision !== (row.state === 'deleted' ? -row.revision : row.revision) ||
-        !equal(committed.mac, row.mac)
+        !equalMac(committed.mac, row.mac)
       )
         fail('integrity_failure', 503);
       secrets.delete(row.id);
@@ -357,7 +362,7 @@ export class Vault {
     const seq = integer((head?.seq ?? 0) + 1, 1),
       previous = head?.mac ?? ZERO_MAC,
       payload = JSON.stringify(event);
-    if (Buffer.byteLength(payload) > 4096) fail('integrity_failure', 503);
+    if (Buffer.byteLength(payload) > MAX_AUDIT_EVENT_BYTES) fail('integrity_failure', 503);
     this.db
       .query('INSERT INTO audit VALUES(?,?,?,?)')
       .run(seq, previous, payload, mac(this.keys.audit, 'event', [seq, previous, payload]));
@@ -457,7 +462,7 @@ export class Vault {
     if (!row) fail('unauthorized', 401);
     verifyToken(row, this.keys.record);
     if (
-      !equal(row.digest, digest(raw)) ||
+      !equalMac(row.digest, digest(raw)) ||
       row.revoked_at !== null ||
       (row.expires_at !== null && row.expires_at <= Date.now())
     )
@@ -513,9 +518,9 @@ export class Vault {
       second = Math.floor(now / 1000);
     let poll = this.polling.get(token.id);
     if (!poll) {
-      if (this.polling.size >= 1024) {
+      if (this.polling.size >= MAX_AUDIT_READERS) {
         for (const [id, value] of this.polling) if (value.expiresAt <= now) this.polling.delete(id);
-        if (this.polling.size >= 1024) fail('busy', 429);
+        if (this.polling.size >= MAX_AUDIT_READERS) fail('busy', 429);
       }
       poll = { second, count: 0, captured: 0, expiresAt: token.expires_at! };
       this.polling.set(token.id, poll);
@@ -524,7 +529,7 @@ export class Vault {
       poll.second = second;
       poll.count = 0;
     }
-    if (poll.count >= 5) fail('busy', 429);
+    if (poll.count >= AUDIT_REQUESTS_PER_SECOND) fail('busy', 429);
     poll.count++;
   }
   perform(
@@ -543,7 +548,8 @@ export class Vault {
     try {
       // Keep filesystem failures inside the fail-stop boundary. One operation
       // can add a bounded value, metadata and audit entry; reserve a further MiB.
-      if (statSync(this.dbPath).size + 1024 ** 2 >= MAX_LIVE) fail('capacity_reached', 503);
+      if (statSync(this.dbPath).size + OPERATION_STORAGE_RESERVE_BYTES >= MAX_LIVE)
+        fail('capacity_reached', 503);
       this.db.exec('BEGIN EXCLUSIVE');
       inTransaction = true;
       token = this.authenticate(credential);
@@ -585,7 +591,7 @@ export class Vault {
     if (operation === 'status') {
       const result = {
         vaultId: this.vaultId,
-        protocolVersion: 1,
+        protocolVersion: PROTOCOL_VERSION,
         expiresAt: token.expires_at,
         auditSeq: this.receipt().seq,
         storage: {
@@ -775,12 +781,13 @@ export class Vault {
     const row = this.db.query('SELECT mac FROM audit WHERE seq=?').get(cursor.seq) as {
       mac: string;
     } | null;
-    return Boolean(row && equal(row.mac, cursor.mac));
+    return Boolean(row && equalMac(row.mac, cursor.mac));
   }
   private auditRead(input: OperationInput, token: TokenRow): unknown {
     const now = Date.now(),
       poll = this.polling.get(token.id)!;
-    if (!input.through && poll.captured && now - poll.captured < 30000) fail('busy', 429);
+    if (!input.through && poll.captured && now - poll.captured < AUDIT_HEAD_INTERVAL_MS)
+      fail('busy', 429);
     const through = input.through ?? this.receipt(),
       after = input.after as Cursor | null;
     if (
@@ -797,7 +804,7 @@ export class Vault {
       if (
         row.seq !== expectedSeq++ ||
         row.previous_mac !== previousMac ||
-        !equal(row.mac, mac(this.keys.audit, 'event', [row.seq, row.previous_mac, row.payload]))
+        !equalMac(row.mac, mac(this.keys.audit, 'event', [row.seq, row.previous_mac, row.payload]))
       )
         fail('integrity_failure', 503);
       parseAuditEvent(parsed(row.payload));
@@ -812,7 +819,7 @@ export class Vault {
     const last = rows.at(-1),
       cursor = last ? { seq: last.seq, mac: last.mac } : after;
     const result = { events, cursor, through: { seq: through.seq, mac: through.mac } };
-    if (Buffer.byteLength(JSON.stringify(result)) > 256 * 1024) fail('integrity_failure', 503);
+    if (Buffer.byteLength(JSON.stringify(result)) > MAX_BODY) fail('integrity_failure', 503);
     this.audit('audit_read', input.context, token.id, undefined, 'success', {
       after: after?.seq ?? 0,
       through: through.seq,

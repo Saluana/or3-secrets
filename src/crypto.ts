@@ -7,7 +7,14 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
-import { fail, type Box, type Scope } from './protocol.js';
+import {
+  fail,
+  MAC_PATTERN,
+  CREDENTIAL_PATTERN,
+  MAX_VALUE,
+  type Box,
+  type Scope,
+} from './protocol.js';
 
 export function randomId() {
   return randomBytes(16).toString('hex');
@@ -30,14 +37,14 @@ export function mac(key: Buffer, domain: string, fields: unknown): string {
     .update(JSON.stringify(['or3-secrets', 1, domain, fields]))
     .digest('hex');
 }
-export function equal(a: string, b: string): boolean {
-  if (!/^[a-f0-9]{64}$/.test(a) || !/^[a-f0-9]{64}$/.test(b)) return false;
+export function equalMac(a: string, b: string): boolean {
+  if (!MAC_PATTERN.test(a) || !MAC_PATTERN.test(b)) return false;
   return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
 }
 function bytes(value: string, length?: number): Buffer {
   if (
     typeof value !== 'string' ||
-    value.length > 65536 ||
+    value.length > MAX_VALUE * 2 ||
     !/^(?:[a-f0-9]{2})*$/.test(value) ||
     (length !== undefined && value.length !== length * 2)
   )
@@ -163,5 +170,5 @@ export function newCredential(): { id: string; raw: string; hash: string } {
   return { id, raw, hash: digest(raw) };
 }
 export function credentialId(raw: string): string | null {
-  return /^ors1\.[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/.test(raw) ? raw.split('.')[1]! : null;
+  return CREDENTIAL_PATTERN.test(raw) ? raw.split('.')[1]! : null;
 }

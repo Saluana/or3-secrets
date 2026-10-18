@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { Fixture, scope, removeCrashSocket } from '../tests/helpers';
+import { Fixture, scope, removeCrashSocket } from './lib/fixture';
 import budgets from './linux-budgets.json';
 
 assert.equal(process.platform, 'linux');

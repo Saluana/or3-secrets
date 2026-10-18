@@ -1,3 +1,4 @@
+import { stopChild } from './lib/process';
 // Operator-guide contract, exercised through the clean packaged CLI only.
 // Failure cases: expired/replaced credentials, lost collector progress, unsafe
 // outputs, wrong recovery keys, source mutation and stale recovered authority.
@@ -46,25 +47,8 @@ let vault = join(work, 'vault'),
   operator = join(work, 'operator.token');
 const socket = join(work, 'run/api.sock'),
   service = join(work, 'service.token');
-const stop = async () => {
-  const stopping = child;
-  if (!stopping || stopping.exitCode !== null || stopping.signalCode !== null) return;
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => stopping.kill('SIGKILL'), 5000);
-    const deadline = setTimeout(() => {
-      stopping.removeListener('close', closed);
-      reject(new Error('Operator service did not exit after SIGKILL'));
-    }, 10000);
-    const closed = () => {
-      clearTimeout(timer);
-      clearTimeout(deadline);
-      if (stopping.exitCode === 0) resolve();
-      else reject(new Error('Service did not stop gracefully'));
-    };
-    stopping.once('close', closed);
-    stopping.kill('SIGTERM');
-  });
-};
+const stop = () => stopChild(child, { requireGraceful: true });
+
 try {
   check(Bun.version === '1.3.14', 'Use the qualified Bun runtime');
   const packageReceipt = JSON.parse(readFileSync(join(results, 'package-receipt.json'), 'utf8'));

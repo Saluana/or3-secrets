@@ -1,5 +1,15 @@
-import { equal, mac } from './crypto.js';
-import { fail, identifier, integer, parseScope, type Scope, type SecretMeta } from './protocol.js';
+import { equalMac, mac } from './crypto.js';
+import {
+  fail,
+  ID_PATTERN,
+  MAC_PATTERN,
+  SERVICE_CAPABILITIES,
+  identifier,
+  integer,
+  parseScope,
+  type Scope,
+  type SecretMeta,
+} from './protocol.js';
 
 export type Header = {
   id: number;
@@ -96,8 +106,12 @@ export function parsed<T>(text: string): T {
     fail('integrity_failure', 503);
   }
 }
+// Hex-encoded 32 KiB ciphertext plus both envelope boxes and JSON metadata.
+const MAX_ENVELOPE_CHARACTERS = 67000;
+
 export function verifySecret(row: SecretRow, recordKey: Buffer): void {
-  if (!equal(row.mac, mac(recordKey, 'secret', secretFields(row)))) fail('integrity_failure', 503);
+  if (!equalMac(row.mac, mac(recordKey, 'secret', secretFields(row))))
+    fail('integrity_failure', 503);
   identifier(row.id);
   parseScope(scopeOf(row));
   identifier(row.name);
@@ -106,16 +120,16 @@ export function verifySecret(row: SecretRow, recordKey: Buffer): void {
   if (
     (row.state !== 'available' && row.state !== 'deleted') ||
     (row.state === 'available'
-      ? typeof row.envelope !== 'string' || row.envelope.length > 67000
+      ? typeof row.envelope !== 'string' || row.envelope.length > MAX_ENVELOPE_CHARACTERS
       : row.envelope !== null)
   )
     fail('integrity_failure', 503);
 }
 export function verifyToken(row: TokenRow, recordKey: Buffer): void {
   if (
-    !equal(row.mac, mac(recordKey, 'token', tokenFields(row))) ||
-    !/^[a-f0-9]{32}$/.test(row.id) ||
-    !/^[a-f0-9]{64}$/.test(row.digest)
+    !equalMac(row.mac, mac(recordKey, 'token', tokenFields(row))) ||
+    !ID_PATTERN.test(row.id) ||
+    !MAC_PATTERN.test(row.digest)
   )
     fail('integrity_failure', 503);
   integer(row.created_at);
@@ -135,9 +149,7 @@ export function verifyToken(row: TokenRow, recordKey: Buffer): void {
       !caps.length ||
       caps.some(
         (cap) =>
-          !(
-            row.kind === 'audit-reader' ? ['audit'] : ['metadata', 'read', 'write', 'delete']
-          ).includes(cap),
+          !(row.kind === 'audit-reader' ? ['audit'] : [...SERVICE_CAPABILITIES]).includes(cap),
       )
     )
       fail('integrity_failure', 503);

@@ -1,9 +1,10 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { closeSync, fstatSync, fsyncSync, mkdtempSync, readSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, mkdtempSync, readSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { derive } from './crypto.js';
 import {
   absent,
+  writeAll,
   createPrivate,
   headroom,
   openPrivate,
@@ -12,16 +13,12 @@ import {
   readPrivate,
   syncDirectory,
 } from './files.js';
-import { fail, MAX_SNAPSHOT, type Receipt } from './protocol.js';
+import { fail, ID_PATTERN, MAX_SNAPSHOT, type Receipt } from './protocol.js';
 import { Vault } from './store.js';
 
 export const BACKUP_HEADER = 96;
 export const BACKUP_OVERHEAD = BACKUP_HEADER + 16;
 const MAGIC = Buffer.from('OR3BAK01');
-function writeAll(fd: number, bytes: Buffer): void {
-  let offset = 0;
-  while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
-}
 function readExact(fd: number, length: number): Buffer {
   const bytes = Buffer.alloc(length);
   let offset = 0;
@@ -69,7 +66,7 @@ function inspectHeader(header: Buffer, fileSize: number): { vaultId: string; len
   const vaultId = header.subarray(8, 40).toString('ascii'),
     length = header.readBigUInt64BE(84);
   if (
-    !/^[a-f0-9]{32}$/.test(vaultId) ||
+    !ID_PATTERN.test(vaultId) ||
     length < 1n ||
     length > BigInt(MAX_SNAPSHOT) ||
     BigInt(fileSize) !== length + BigInt(BACKUP_OVERHEAD)
@@ -95,6 +92,7 @@ export function backup(options: {
     if (options.receipt) vault.checkReceipt(options.receipt);
     const size = fstatSize(vault.dbPath);
     if (size > MAX_SNAPSHOT) fail('too_large', 413);
+    // One output snapshot plus the private staging snapshot on live custody storage.
     headroom(dirname(options.outFile), size);
     headroom(vault.vaultDir, size);
     // Raw metadata stays on live custody storage, including after interruption.
@@ -160,6 +158,7 @@ export function restore(options: {
     if (size < BACKUP_OVERHEAD + 1 || size > MAX_SNAPSHOT + BACKUP_OVERHEAD) fail('invalid_backup');
     const header = readExact(input, BACKUP_HEADER),
       { vaultId, length } = inspectHeader(header, size);
+    // Reserve the input, decrypted staging, fresh-key copy and SQLite construction space.
     headroom(dirname(options.destination), length * 4);
     key = derive(master, vaultId, 'backup', header.subarray(40, 72));
     const decipher = createDecipheriv('aes-256-gcm', key, header.subarray(72, 84), {
@@ -215,6 +214,7 @@ export function rekey(options: {
   try {
     if (options.receipt) source.checkReceipt(options.receipt);
     const size = source.logicalBytes();
+    // Reserve staging, fresh-key copy and SQLite construction space; source stays intact.
     headroom(dirname(options.destination), size * 3);
     return Vault.create(
       {

@@ -2,27 +2,26 @@
 
 A small Bun service, CLI, Node client, and optional OR3 Nuxt provider. One Unix socket and one private SQLite database; encrypted secret values, scoped expiring tokens, compare-and-set revisions, required authenticated audit, and fresh-key recovery.
 
-**Development implementation, unpublished (`0.0.0`).** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](docs/qualification.md), [Linux core measurements](docs/linux-qualification.md), and the [production control gates](planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
+**Development implementation, unpublished (`0.0.0`).** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](https://github.com/Saluana/or3-secrets/blob/main/docs/qualification.md), [Linux core measurements](https://github.com/Saluana/or3-secrets/blob/main/docs/linux-qualification.md), and the [production control gates](https://github.com/Saluana/or3-secrets/blob/main/planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
 
 ```sh
 # Use exactly Bun 1.3.14 on PATH; do not upgrade another project's global runtime.
 bun install --frozen-lockfile --ignore-scripts
 bun run build
 bun run typecheck
+bun run format:check
 bun test --timeout 30000 tests
 ```
 
 The CLI launcher uses Bun with automatic `.env` loading disabled. `serve` never initializes storage. Initialization creates a random 32-byte master key outside the vault directory and a separate operator credential, both exclusively as `0600` files in `0700` directories. It prints an identity/checkpoint receipt, never the credentials. Supported platforms are macOS development and separately qualified Linux; Windows and network filesystems are unsupported.
 
-Read [operations](docs/operations.md) for complete commands, backup/recovery, audit collection, private files, service identities, and rotation. The [local qualification record](docs/local-qualification.md) maps the completed checklist to repeatable evidence and separates production acceptance. Read [security and API](docs/security.md) for formats and limits. The [upstream source analysis](planning/secure-secret-store/source-analysis.md) explains the selected ideas from secretctl and Dopbase; no upstream source was copied.
+Read [operations](docs/operations.md) for complete commands, backup/recovery, audit collection, private files, service identities, and rotation. The [local qualification record](https://github.com/Saluana/or3-secrets/blob/main/docs/local-qualification.md) maps the completed checklist to repeatable evidence and separates production acceptance. Read [security and API](docs/security.md) for formats and limits.
 
 Start with `or3-secrets --help`. Every command has its own required options, example and safety notes: `or3-secrets put --help`, `or3-secrets help token issue`, or `or3-secrets restore -h`. Missing options are listed together before any operation. Terminals show readable errors and formatted metadata; redirected output remains JSON, with `{error:{code,message,hint}}` on stderr. `get --stdout` always preserves the exact secret bytes. Existing output paths are refused as `output_exists` (exit 64); choose a new path rather than overwriting one.
 
 Ctrl-C or SIGTERM stops the foreground service gracefully; successful cleanup exits 0 and removes the socket.
 
-The [internal security review](docs/security-review.md) records the replay, filesystem, redirect and admission fixes and their regression evidence. The [subsequent review remediation](docs/review-remediation.md) tracks the index, custody, admission, recovery and qualification fixes, including outstanding publication and runtime-stack gates. Earlier development vaults without the new audit state evidence are refused; create a fresh disposable vault rather than reusing or overwriting those fixtures.
-
-Successful secret mutations now bind the complete authenticated row into their audit event. This also rejects a valid same-revision row from a different database branch, even when the original branch's retained receipt still matches. Unpublished fixtures with secret mutations lacking `detail.recordMac` fail closed; preserve their files and keys for separately reviewed recovery. Update the service and audit-export client together because strict older audit clients reject the new event field. The OR3 secret-operation API is unchanged.
+Read [architecture](docs/architecture.md) for module boundaries and the security rules they share. Unpublished vault-format compatibility requirements are documented in [security and API](docs/security.md).
 
 ## Node client
 

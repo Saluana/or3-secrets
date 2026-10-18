@@ -4,6 +4,10 @@ import { Vault } from './store.js';
 import { absent, safeParents } from './files.js';
 import { MAX_BODY, OPERATIONS, SecretError, fail, parseInput, type Operation } from './protocol.js';
 
+const REQUEST_BODY_TIMEOUT_MS = 5000;
+const REJECTION_REPORT_INTERVAL_MS = 30000;
+const MAX_IN_FLIGHT_REQUESTS = 16;
+
 function errorResponse(code: string, status: number, vaultId?: string): Response {
   return Response.json(
     { error: { code } },
@@ -20,7 +24,10 @@ async function body(request: Request): Promise<unknown> {
   const reader = request.body.getReader();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new SecretError('request_timeout', 408)), 5000);
+    timer = setTimeout(
+      () => reject(new SecretError('request_timeout', 408)),
+      REQUEST_BODY_TIMEOUT_MS,
+    );
   });
   const parts: Uint8Array[] = [];
   let size = 0;
@@ -73,7 +80,7 @@ export function serve(options: {
       droppedIntervals = 0;
       for (const key of Object.keys(counters) as (keyof typeof counters)[]) counters[key] = 0;
     }
-  }, 30000);
+  }, REJECTION_REPORT_INTERVAL_MS);
   telemetry.unref();
   async function close() {
     if (closing) return;
@@ -128,7 +135,7 @@ export function serve(options: {
           // This synchronous bounded check acquires no body slot and writes no
           // audit. perform() authenticates/authorizes again inside its transaction.
           vault.preflight(authorization.slice(7), expectedVault);
-          if (inFlight >= 16) fail('busy', 429);
+          if (inFlight >= MAX_IN_FLIGHT_REQUESTS) fail('busy', 429);
           inFlight++;
           admitted = true;
           const input = parseInput(operation, await body(request));

@@ -5,6 +5,7 @@ export const CREDENTIAL_PATTERN = /^ors1\.[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/;
 export const SERVICE_CAPABILITIES = ['metadata', 'read', 'write', 'delete'] as const;
 export const MAX_PAGE_SIZE = 100;
 export const MAX_TOKEN_LIFETIME_SECONDS = 90 * 86400;
+export const MAX_AUDIT_EVENT_BYTES = 4096;
 export const MAX_BODY = 256 * 1024;
 export const MAX_VALUE = 32 * 1024;
 export const MAX_SNAPSHOT = 2 ** 30;
@@ -91,6 +92,19 @@ export type AuditPayload = {
 };
 export type AuditEvent = { seq: number; previousMac: string; event: AuditPayload; mac: string };
 export type AuditPage = { events: AuditEvent[]; cursor: Cursor | null; through: Cursor };
+/** Request bodies before the transport adds authenticated request context. */
+export type OperationRequests = {
+  status: Record<string, never>;
+  'secrets/inspect': { scope: Scope; name: string };
+  'secrets/list': { scope: Scope; after?: string; limit?: number };
+  'secrets/put': { scope: Scope; name: string; value: string; expectedRevision: number };
+  'secrets/resolve': { scope: Scope; selector: { name: string } | { ref: SecretRef } };
+  'secrets/delete': { scope: Scope; name: string; expectedRevision: number };
+  'tokens/issue': TokenPolicy;
+  'tokens/list': { after?: string; limit?: number };
+  'tokens/revoke': { id: string };
+  'audit/read': { after: Cursor | null; through?: Cursor; limit: number };
+};
 export type OperationResults = {
   status: StatusResult;
   'secrets/inspect': SecretMeta | null;
@@ -105,25 +119,25 @@ export type OperationResults = {
 };
 export interface SecretStore {
   inspect(
-    input: { scope: Scope; name: string },
+    input: OperationRequests['secrets/inspect'],
     context?: Partial<Context>,
-  ): Promise<SecretMeta | null>;
+  ): Promise<OperationResults['secrets/inspect']>;
   list(
-    input: { scope: Scope; after?: string; limit?: number },
+    input: OperationRequests['secrets/list'],
     context?: Partial<Context>,
-  ): Promise<{ items: SecretMeta[]; next?: string }>;
+  ): Promise<OperationResults['secrets/list']>;
   put(
-    input: { scope: Scope; name: string; value: string; expectedRevision: number },
+    input: OperationRequests['secrets/put'],
     context?: Partial<Context>,
-  ): Promise<SecretMeta>;
+  ): Promise<OperationResults['secrets/put']>;
   resolve(
-    input: { scope: Scope; selector: { name: string } | { ref: SecretRef } },
+    input: OperationRequests['secrets/resolve'],
     context?: Partial<Context>,
-  ): Promise<{ value: string; meta: SecretMeta }>;
+  ): Promise<OperationResults['secrets/resolve']>;
   delete(
-    input: { scope: Scope; name: string; expectedRevision: number },
+    input: OperationRequests['secrets/delete'],
     context?: Partial<Context>,
-  ): Promise<SecretMeta>;
+  ): Promise<OperationResults['secrets/delete']>;
 }
 export class SecretError extends Error {
   constructor(
@@ -287,14 +301,14 @@ export function parseInput(operation: Operation, input: unknown): OperationInput
   if (operation === 'secrets/resolve') out.selector = parseSelector(r.selector);
   if (operation === 'secrets/list' || operation === 'tokens/list') {
     if (r.after !== undefined) out.after = identifier(r.after);
-    out.limit = r.limit === undefined ? 100 : integer(r.limit, 1, 100);
+    out.limit = r.limit === undefined ? MAX_PAGE_SIZE : integer(r.limit, 1, MAX_PAGE_SIZE);
   }
   if (operation === 'tokens/revoke') out.id = identifier(r.id);
   if (operation === 'tokens/issue') out.policy = parseTokenPolicy(r);
   if (operation === 'audit/read') {
     out.after = r.after === null ? null : parseCursor(r.after);
     if (r.through !== undefined) out.through = parseCursor(r.through);
-    out.limit = integer(r.limit, 1, 100);
+    out.limit = integer(r.limit, 1, MAX_PAGE_SIZE);
     if (out.after && out.through && out.after.seq > out.through.seq)
       fail('audit_checkpoint_mismatch', 409);
   }
@@ -362,7 +376,7 @@ export function parseResponse<O extends Operation>(
       fail('invalid_response', 503);
   } else if (operation === 'secrets/list' || operation === 'tokens/list') {
     const r = object(value, ['items', 'next'], ['items']);
-    if (!Array.isArray(r.items) || r.items.length > 100) fail('invalid_response', 503);
+    if (!Array.isArray(r.items) || r.items.length > MAX_PAGE_SIZE) fail('invalid_response', 503);
     for (const item of r.items)
       (operation === 'secrets/list' ? validateMetadata : validateTokenMetadata)(item);
     if (r.next !== undefined) identifier(r.next);
@@ -407,7 +421,7 @@ export function parseResponse<O extends Operation>(
     const r = object(value, ['events', 'cursor', 'through']);
     parseCursor(r.through);
     if (r.cursor !== null) parseCursor(r.cursor);
-    if (!Array.isArray(r.events) || r.events.length > 100) fail('invalid_response', 503);
+    if (!Array.isArray(r.events) || r.events.length > MAX_PAGE_SIZE) fail('invalid_response', 503);
     for (const event of r.events) {
       const row = object(event, ['seq', 'previousMac', 'event', 'mac']);
       parseCursor({ seq: row.seq, mac: row.mac });

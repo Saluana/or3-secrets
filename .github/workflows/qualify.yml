@@ -43,7 +43,7 @@ jobs:
         run: |
           bun --no-env-file run build
           bun --no-env-file run typecheck
-          bun x tsc --noEmit --strict --skipLibCheck --noUnusedLocals --noUnusedParameters --module ESNext --moduleResolution Bundler --target ES2023 --types bun-types,node scripts/qualify-operator.ts scripts/qualify-capacity.ts scripts/qualify-host.ts scripts/qualify-linux.ts scripts/qualify-disk.ts
+          bun --no-env-file run format:check
           mkdir -p test-results
           bun --no-env-file test --timeout 30000 --reporter=junit --reporter-outfile=test-results/tests.xml tests
           bun --no-env-file scripts/qualify-interruptions.ts

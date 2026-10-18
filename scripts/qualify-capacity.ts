@@ -15,7 +15,7 @@ import { derive, mac } from '../src/crypto';
 import { Vault } from '../src/store';
 import { backup, restore, rekey, BACKUP_OVERHEAD } from '../src/maintenance';
 import { MAX_SNAPSHOT, parseInput, type Operation } from '../src/protocol';
-import { Fixture, cli, scope } from '../tests/helpers';
+import { Fixture, cli, scope } from './lib/fixture';
 // ARM64 local budgets remain unchanged. CI's x64-baseline Bun build has a
 // separate ceiling and must also pass a same-host, same-fixture base comparison.
 // Neither profile chooses a production SLO; the job timeout stays unchanged.

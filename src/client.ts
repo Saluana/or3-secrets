@@ -12,6 +12,7 @@ import {
   type Cursor,
   type Operation,
   type OperationResults,
+  type OperationRequests,
   ID_PATTERN,
   type SecretStore,
   type TokenPolicy,
@@ -29,6 +30,8 @@ export type {
   StatusResult,
   AuditPage,
   AuditEvent,
+  OperationRequests,
+  OperationResults,
 } from './protocol.js';
 export { SecretError } from './protocol.js';
 
@@ -57,7 +60,7 @@ export function createClient(options: ClientOptions) {
     fail('invalid_configuration');
   const call = async <O extends Operation>(
     operation: O,
-    input: Record<string, unknown>,
+    input: OperationRequests[O],
     context?: Partial<Context>,
   ): Promise<OperationResults[O]> => {
     const requestContext = parseContext({ requestId: randomUUID(), ...context });

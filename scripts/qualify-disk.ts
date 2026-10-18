@@ -12,7 +12,7 @@ import {
   existsSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { Fixture, scope, removeCrashSocket } from '../tests/helpers';
+import { Fixture, scope, removeCrashSocket } from './lib/fixture';
 import { expect } from 'bun:test';
 import { backup, restore, rekey } from '../src/maintenance';
 if (process.platform !== 'linux' || process.getuid?.() === 0)

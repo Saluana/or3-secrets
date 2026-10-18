@@ -8,14 +8,13 @@ import {
   symlinkSync,
   writeFileSync,
   mkdirSync,
-  rmSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { Database } from 'bun:sqlite';
 import { request } from 'node:http';
 import { createHmac, hkdfSync } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { Fixture, cli, context, scope, removeCrashSocket, project } from './helpers';
+import { Fixture, cli, scope, removeCrashSocket, project } from './helpers';
 import { createClient } from '../src/client';
 
 const outcomes: { name: string; outcome: string }[] = [];

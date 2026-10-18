@@ -1,6 +1,12 @@
-import { equal, mac } from './crypto.js';
+import { equalMac, mac } from './crypto.js';
 import { parsed, type AuditRow } from './records.js';
-import { fail, integer, parseAuditEvent, type AuditPayload } from './protocol.js';
+import {
+  fail,
+  MAX_AUDIT_EVENT_BYTES,
+  integer,
+  parseAuditEvent,
+  type AuditPayload,
+} from './protocol.js';
 
 export const ZERO_MAC = '0'.repeat(64);
 
@@ -21,8 +27,8 @@ export function verifyHistory(
     if (
       row.seq !== seq + 1 ||
       row.previous_mac !== previous ||
-      Buffer.byteLength(row.payload) > 4096 ||
-      !equal(row.mac, mac(auditKey, 'event', [row.seq, row.previous_mac, row.payload]))
+      Buffer.byteLength(row.payload) > MAX_AUDIT_EVENT_BYTES ||
+      !equalMac(row.mac, mac(auditKey, 'event', [row.seq, row.previous_mac, row.payload]))
     )
       fail('integrity_failure', 503);
     const event = parsed<AuditPayload>(row.payload);

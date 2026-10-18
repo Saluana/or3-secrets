@@ -1,21 +1,15 @@
 import { parseArgs } from 'node:util';
-import {
-  readSync,
-  writeSync,
-  fsyncSync,
-  closeSync,
-  fstatSync,
-  lstatSync,
-  unlinkSync,
-} from 'node:fs';
+import { readSync, fsyncSync, closeSync, fstatSync, lstatSync, unlinkSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { createClient } from './client.js';
 import { Vault } from './store.js';
 import { serve } from './server.js';
 import { backup, restore, rekey } from './maintenance.js';
-import { readPrivate, createPrivate, syncDirectory } from './files.js';
+import { readPrivate, createPrivate, syncDirectory, writeAll } from './files.js';
 import {
   MAX_VALUE,
+  ID_PATTERN,
+  MAC_PATTERN,
   SecretError,
   fail,
   identifier,
@@ -25,6 +19,85 @@ import {
   type TokenPolicy,
 } from './protocol.js';
 import { cliCommands, cliHelp, cliOptions } from './cli-help.js';
+
+const ERROR_GUIDANCE: Record<string, [string, string]> = {
+  output_exists: [
+    'The output path already exists. Nothing was overwritten.',
+    'Choose a new file or destination path. Inspect any existing output before removing it.',
+  ],
+  file_not_found: [
+    'A required file or parent directory does not exist.',
+    'Check input paths and create private parent directories (0700). Run the command with --help for an example.',
+  ],
+  permission_denied: [
+    'The operating system denied access.',
+    'Check file ownership and directory permissions. Do not loosen private-file permissions.',
+  ],
+  unsafe_path: [
+    'The path does not meet private ownership or permission requirements.',
+    'Use trusted paths without symlinks, private directories (0700) and private files (0600). On macOS use /private/tmp, not /tmp.',
+  ],
+  unsafe_file: [
+    'The file does not meet private-file requirements.',
+    'Use a regular, single-link file owned by you with mode 0600, inside a private 0700 directory.',
+  ],
+  unsafe_socket: [
+    'The socket does not meet ownership or permission requirements.',
+    'Check the service identity, private socket directory and configured client group.',
+  ],
+  explicit_output_required: [
+    'Reading plaintext requires an explicit output choice.',
+    'Use --out-file NEW_FILE or --stdout.',
+  ],
+  interactive_input_refused: [
+    'Secret entry in an echoing terminal is refused.',
+    'Use a privately prepared UTF-8 file: put [options] < ./input-value. Never put a secret in command arguments.',
+  ],
+  revision_conflict: [
+    'The secret changed since the expected revision.',
+    'Run inspect, review the current revision, then explicitly retry with --expected-revision.',
+  ],
+  not_found: [
+    'No current secret matches this name or reference.',
+    'Run inspect or list in the same scope. Deleted or superseded references cannot be read.',
+  ],
+  unauthorized: [
+    'The credential is invalid, expired or revoked.',
+    'Use the operator credential to issue a new scoped token into a new private file.',
+  ],
+  forbidden: [
+    'This credential is not allowed to perform the operation in this scope.',
+    'Check the credential kind, capabilities and complete namespace/owner/workspace/consumer scope.',
+  ],
+  vault_mismatch: [
+    'The running vault does not match --vault-id.',
+    'Check the socket path and the vault ID from initialization before continuing.',
+  ],
+  integrity_failure: [
+    'Vault integrity verification failed.',
+    'Stop and preserve the vault, key and retained receipts for investigation. Do not initialize or overwrite them.',
+  ],
+  invalid_backup: [
+    'The backup could not be authenticated or validated.',
+    'Check that the backup and key belong together. Preserve the source and choose new output paths for any retry.',
+  ],
+  too_large: [
+    'The input exceeds the size limit.',
+    'Secret values must be UTF-8 and at most 32 KiB.',
+  ],
+  unsupported_runtime: [
+    'This CLI requires Bun 1.3.14.',
+    'Put the qualified Bun 1.3.14 runtime on PATH.',
+  ],
+  unavailable: [
+    'The operation is unavailable.',
+    'Check that the service is running, paths and permissions are correct, and disk space is available. Inspect the current revision before retrying a mutation.',
+  ],
+  capacity_reached: [
+    'The vault reached its supported live capacity.',
+    'Stop the service and back up or rekey to fresh paths. Preserve the source; do not delete audit history.',
+  ],
+};
 
 process.umask(0o077);
 let activeCommand = '';
@@ -67,7 +140,7 @@ function expiration(value: unknown): number {
 function cursor(value: unknown, flag: string) {
   if (typeof value !== 'string') usage(`--${flag} must use SEQ:MAC from the preceding audit page.`);
   const [seq, mac, extra] = value.split(':');
-  if (extra !== undefined || !seq || !/^\d+$/.test(seq) || !mac || !/^[a-f0-9]{64}$/.test(mac))
+  if (extra !== undefined || !seq || !/^\d+$/.test(seq) || !mac || !MAC_PATTERN.test(mac))
     usage(`--${flag} must use SEQ:MAC from the preceding audit page.`);
   return parseCursor({ seq: number(seq, flag), mac });
 }
@@ -134,9 +207,7 @@ async function privateOutput<T>(
     const { bytes, result } = await action();
     const buffer = Buffer.from(bytes);
     try {
-      let offset = 0;
-      while (offset < buffer.length)
-        offset += writeSync(fd, buffer, offset, buffer.length - offset);
+      writeAll(fd, buffer);
       fsyncSync(fd);
     } finally {
       buffer.fill(0);
@@ -219,7 +290,7 @@ async function main() {
   };
   if (
     values['vault-id'] !== undefined &&
-    (typeof values['vault-id'] !== 'string' || !/^[a-f0-9]{32}$/.test(values['vault-id']))
+    (typeof values['vault-id'] !== 'string' || !ID_PATTERN.test(values['vault-id']))
   )
     usage('--vault-id must be the 32-character lowercase vault ID printed by init.');
   const json = (value: unknown) =>
@@ -235,7 +306,7 @@ async function main() {
         Array.isArray(data) ||
         Object.keys(data).some((key) => !['seq', 'mac', 'vaultId'].includes(key)) ||
         typeof data.vaultId !== 'string' ||
-        !/^[a-f0-9]{32}$/.test(data.vaultId)
+        !ID_PATTERN.test(data.vaultId)
       )
         usage('--receipt-file must contain a JSON receipt with vaultId, seq and mac.');
       return { ...parseCursor({ seq: data.seq, mac: data.mac }), vaultId: data.vaultId };
@@ -412,7 +483,7 @@ async function main() {
     let selector: { name: string } | { ref: { id: string; revision: number } };
     if (values.ref) {
       const [id, revision, extra] = str('ref').split(':');
-      if (extra || !id || !/^[a-f0-9]{32}$/.test(id) || !revision)
+      if (extra || !id || !ID_PATTERN.test(id) || !revision)
         usage('--ref must use ID:REVISION from inspect.');
       selector = { ref: { id, revision: number(revision, 'ref') } };
     } else selector = { name: str('name') };
@@ -458,88 +529,10 @@ main().catch((error) => {
                 : 'unavailable',
             systemCode === 'ENOENT' ? 400 : 503,
           );
-  const guidance: Record<string, [string, string]> = {
-    output_exists: [
-      'The output path already exists. Nothing was overwritten.',
-      'Choose a new file or destination path. Inspect any existing output before removing it.',
-    ],
-    file_not_found: [
-      'A required file or parent directory does not exist.',
-      'Check input paths and create private parent directories (0700). Run the command with --help for an example.',
-    ],
-    permission_denied: [
-      'The operating system denied access.',
-      'Check file ownership and directory permissions. Do not loosen private-file permissions.',
-    ],
-    unsafe_path: [
-      'The path does not meet private ownership or permission requirements.',
-      'Use trusted paths without symlinks, private directories (0700) and private files (0600). On macOS use /private/tmp, not /tmp.',
-    ],
-    unsafe_file: [
-      'The file does not meet private-file requirements.',
-      'Use a regular, single-link file owned by you with mode 0600, inside a private 0700 directory.',
-    ],
-    unsafe_socket: [
-      'The socket does not meet ownership or permission requirements.',
-      'Check the service identity, private socket directory and configured client group.',
-    ],
-    explicit_output_required: [
-      'Reading plaintext requires an explicit output choice.',
-      'Use --out-file NEW_FILE or --stdout.',
-    ],
-    interactive_input_refused: [
-      'Secret entry in an echoing terminal is refused.',
-      'Use a privately prepared UTF-8 file: put [options] < ./input-value. Never put a secret in command arguments.',
-    ],
-    revision_conflict: [
-      'The secret changed since the expected revision.',
-      'Run inspect, review the current revision, then explicitly retry with --expected-revision.',
-    ],
-    not_found: [
-      'No current secret matches this name or reference.',
-      'Run inspect or list in the same scope. Deleted or superseded references cannot be read.',
-    ],
-    unauthorized: [
-      'The credential is invalid, expired or revoked.',
-      'Use the operator credential to issue a new scoped token into a new private file.',
-    ],
-    forbidden: [
-      'This credential is not allowed to perform the operation in this scope.',
-      'Check the credential kind, capabilities and complete namespace/owner/workspace/consumer scope.',
-    ],
-    vault_mismatch: [
-      'The running vault does not match --vault-id.',
-      'Check the socket path and the vault ID from initialization before continuing.',
-    ],
-    integrity_failure: [
-      'Vault integrity verification failed.',
-      'Stop and preserve the vault, key and retained receipts for investigation. Do not initialize or overwrite them.',
-    ],
-    invalid_backup: [
-      'The backup could not be authenticated or validated.',
-      'Check that the backup and key belong together. Preserve the source and choose new output paths for any retry.',
-    ],
-    too_large: [
-      'The input exceeds the size limit.',
-      'Secret values must be UTF-8 and at most 32 KiB.',
-    ],
-    unsupported_runtime: [
-      'This CLI requires Bun 1.3.14.',
-      'Put the qualified Bun 1.3.14 runtime on PATH.',
-    ],
-    unavailable: [
-      'The operation is unavailable.',
-      'Check that the service is running, paths and permissions are correct, and disk space is available. Inspect the current revision before retrying a mutation.',
-    ],
-    capacity_reached: [
-      'The vault reached its supported live capacity.',
-      'Stop the service and back up or rekey to fresh paths. Preserve the source; do not delete audit history.',
-    ],
-  };
   const [message, hint] =
     error instanceof CliUsageError
       ? [error.guidance, error.hint]
-      : (guidance[safe.code] ?? [
+      : (ERROR_GUIDANCE[safe.code] ?? [
           'The operation was refused.',
           `Run or3-secrets${activeCommand ? ` ${activeCommand}` : ''} --help and inspect the fixed error code.`,
         ]);

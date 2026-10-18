@@ -1,3 +1,4 @@
+import { cleanApplicationEnv, stopChild } from './lib/process';
 // Real full-app boundary: reviewed package -> trusted loader -> host.secrets ->
 // authenticated Nitro route -> packaged Node client -> separate Bun vault.
 // Failure owners: wrong provider selection, broken activation, scope confusion,
@@ -20,7 +21,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:net';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dir, '..'),
   checkout = resolve(process.env.OR3_SECRETS_HOST_DIR ?? join(root, '../or3-chat'));
@@ -36,25 +37,8 @@ let browserOpened = false;
 const check = (ok: unknown, reason: string) => {
   if (!ok) throw new Error(reason);
 };
-const env: NodeJS.ProcessEnv = {
-  ...process.env,
-  PATH: `${dirname(process.execPath)}:${process.env.PATH}`,
-};
-// Never inherit the checkout's real application credentials or backing stores.
-for (const key of Object.keys(env)) {
-  if (
-    /^(OR3_|NUXT_|VITE_|CLERK_|CONVEX_|OPENROUTER_|AUTH_)/.test(key) ||
-    [
-      'SSR_AUTH_ENABLED',
-      'PORT',
-      'HOST',
-      'NITRO_UNIX_SOCKET',
-      'DOTENV_CONFIG_PATH',
-      'NODE_OPTIONS',
-    ].includes(key)
-  )
-    delete env[key];
-}
+// Never inherit application credentials or backing stores into this fixture.
+const env = cleanApplicationEnv(process.env);
 const run = (command: string, args: string[], input?: string) => {
   const result = spawnSync(command, args, {
     cwd: checkout,
@@ -85,27 +69,7 @@ const evaluate = (body: string) =>
     run('agent-browser', ['--session', session, 'eval', '--stdin'], `(async()=>{${body}})()`),
   );
 const requestHelpers = `const post=async(url,data,intent='admin')=>{const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json',[intent==='admin'?'x-or3-admin-intent':'x-or3-cloud-intent']:intent==='admin'?'admin':'mutation'},body:JSON.stringify(data)});const b=await r.json();if(!r.ok)throw Error(url+': '+r.status);return b};const check=(ok,why)=>{if(!ok)throw Error(why)};`;
-const stop = async (child?: ChildProcess, group = false) => {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  const exited = new Promise<void>((yes) => child.once('exit', () => yes()));
-  try {
-    if (group) process.kill(-child.pid!, 'SIGTERM');
-    else child.kill('SIGTERM');
-  } catch {
-    return;
-  }
-  const timeout = setTimeout(() => {
-    try {
-      if (group) process.kill(-child.pid!, 'SIGKILL');
-      else child.kill('SIGKILL');
-    } catch {}
-  }, 5000);
-  try {
-    await exited;
-  } finally {
-    clearTimeout(timeout);
-  }
-};
+const stop = (child?: ChildProcess, group = false) => stopChild(child, { group });
 const waitFor = async (probe: () => Promise<boolean>, timeout = 120000) => {
   const until = Date.now() + timeout;
   while (Date.now() < until) {
@@ -584,17 +548,17 @@ try {
   for (const child of children) await stop(child);
   // Immutable package directories are read-only by design. Loosen only our
   // disposable tree, without following the node_modules symlink into the host.
-  const remove = (path: string) => {
+  const makeFixtureWritable = (path: string) => {
     for (const entry of readdirSync(path, { withFileTypes: true })) {
       const child = join(path, entry.name);
       if (entry.isDirectory()) {
         chmodSync(child, 0o700);
-        remove(child);
+        makeFixtureWritable(child);
       }
     }
   };
   if (passed) {
-    remove(work);
+    makeFixtureWritable(work);
     rmSync(work, { recursive: true, force: true });
   } else
     console.error(`Failed fixture retained for diagnosis (synthetic credentials only): ${work}`);
