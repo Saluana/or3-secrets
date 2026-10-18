@@ -16,14 +16,49 @@ assert.ok(
 );
 assert.equal(manifest.publishConfig.access, 'public');
 assert.equal(manifest.publishConfig.registry, 'https://registry.npmjs.org/');
-assert.equal(process.env.GITHUB_REF, `refs/tags/v${manifest.version}`, 'Tag/version mismatch');
+const manual = process.argv[2] === '--manual';
+if (!manual)
+  assert.equal(process.env.GITHUB_REF, `refs/tags/v${manifest.version}`, 'Tag/version mismatch');
 const source = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-assert.equal(process.env.GITHUB_SHA, source, 'Checkout must match the release commit');
+if (!manual) assert.equal(process.env.GITHUB_SHA, source, 'Checkout must match the release commit');
 assert.equal(
   execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim(),
   '',
   'Release sources must be clean',
 );
+if (manual) {
+  assert.equal(
+    execFileSync('git', ['branch', '--show-current'], { cwd: root, encoding: 'utf8' }).trim(),
+    'main',
+    'Publish from main after merging the qualified changes',
+  );
+  const remote = execFileSync('git', ['ls-remote', 'origin', 'refs/heads/main'], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 15000,
+  })
+    .trim()
+    .split(/\s+/)[0];
+  assert.equal(
+    remote,
+    source,
+    'Local main must match remote main; pull or push reviewed changes first',
+  );
+  const ci = await fetch(
+    `https://api.github.com/repos/Saluana/or3-secrets/actions/workflows/qualify.yml/runs?head_sha=${source}&event=push&status=success&per_page=5`,
+    { signal: AbortSignal.timeout(15000), redirect: 'error' },
+  );
+  assert.equal(ci.status, 200, 'Unable to verify CI; retry after GitHub is available');
+  const runs = (await ci.json()) as {
+    workflow_runs?: { head_sha: string; event: string; conclusion: string }[];
+  };
+  assert.ok(
+    runs.workflow_runs?.some(
+      (run) => run.head_sha === source && run.event === 'push' && run.conclusion === 'success',
+    ),
+    'Successful CI required for this exact commit; wait for Security qualification to pass',
+  );
+}
 
 // Only an explicit registry E404 proves absence; connectivity/auth failures must stop release.
 const response = await fetch(`https://registry.npmjs.org/@or3%2fsecrets/${manifest.version}`, {
@@ -40,7 +75,7 @@ assert.ok(
   'Unexpected registry reply',
 );
 
-const receiptDirectory = process.argv[2];
+const receiptDirectory = process.argv[manual ? 3 : 2];
 if (receiptDirectory) {
   const receipt = JSON.parse(readFileSync(join(receiptDirectory, 'package-receipt.json'), 'utf8'));
   assert.equal(receipt.packageName, manifest.name);

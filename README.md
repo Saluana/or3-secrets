@@ -23,6 +23,10 @@ Ctrl-C or SIGTERM stops the foreground service gracefully; successful cleanup ex
 
 Read [architecture](docs/architecture.md) for module boundaries and the security rules they share. Unpublished vault-format compatibility requirements are documented in [security and API](docs/security.md).
 
+## Publishing
+
+From clean, committed `main` matching the remote, run `npm publish --dry-run`, then `npm publish`. The publish hook requires Bun 1.3.14 on PATH and successful CI for that exact commit, checks that the npm version is unused, installs frozen dependencies without lifecycle scripts, rebuilds and qualifies the package, and runs types, formatting, and all tests. npm publishes the validated build directly; no artifact path is needed. Keep lifecycle scripts enabled. See [releasing](docs/releasing.md) for first publication and trusted publishing.
+
 ## Installation
 
 Once `0.1.0` is published, install the exact version:

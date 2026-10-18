@@ -51,6 +51,7 @@ jobs:
           bun --no-env-file run format:check
           mkdir -p test-results
           bun --no-env-file test --timeout 30000 --reporter=junit --reporter-outfile=test-results/tests.xml tests
+          bun --no-env-file scripts/qualify-publish.ts
           bun --no-env-file scripts/qualify-interruptions.ts
           bun --no-env-file scripts/qualify-profile.ts
       - name: Package and pinned provider qualification

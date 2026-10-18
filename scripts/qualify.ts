@@ -26,7 +26,16 @@ try {
   run(process.execPath, ['--no-env-file', 'scripts/build.ts']);
   run('node', ['node_modules/typescript/bin/tsc', '--emitDeclarationOnly']);
   const pack = JSON.parse(
-    run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', work]),
+    // An outer `npm publish --dry-run` exports npm_config_dry_run to lifecycle children.
+    // This internal pack must still create the disposable tarball we inspect and exercise.
+    run('npm', [
+      'pack',
+      '--ignore-scripts',
+      '--dry-run=false',
+      '--json',
+      '--pack-destination',
+      work,
+    ]),
   )[0];
   const tarball = join(work, pack.filename),
     unpack = join(work, 'clean');

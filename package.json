@@ -36,6 +36,7 @@
     "host-compatibility.json"
   ],
   "scripts": {
+    "prepublishOnly": "node scripts/prepublish.ts",
     "test": "bun test --timeout 30000 tests",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tools.json",
     "build": "bun scripts/build.ts && tsc --emitDeclarationOnly",
