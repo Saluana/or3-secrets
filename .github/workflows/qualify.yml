@@ -63,10 +63,11 @@ jobs:
           fi
       - name: Full-source secret scan
         run: >-
-          docker run --rm --network none
+          docker run --rm --network none --user "$(id -u):$(id -g)"
+          --cap-drop ALL --security-opt no-new-privileges
           -v "$PWD:/source:ro" -v "$PWD/test-results:/results"
           aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e
-          fs --scanners secret --offline-scan --skip-version-check --exit-code 1
+          --cache-dir /tmp/trivy fs --scanners secret --offline-scan --skip-version-check --exit-code 1
           --skip-dirs /source/node_modules --skip-dirs /source/.git
           --skip-dirs /source/dist --skip-dirs /source/test-results
           --secret-config /source/trivy-secret.yaml --format json
@@ -75,7 +76,7 @@ jobs:
         run: |
           bun --no-env-file -e 'import {Database} from "bun:sqlite"; import {writeFileSync} from "node:fs"; const node=JSON.parse(Bun.spawnSync(["node","-e","process.stdout.write(JSON.stringify(process.versions))"]).stdout.toString()); writeFileSync("test-results/runtime-inventory.json",JSON.stringify({bun:Bun.version,sqlite:new Database(":memory:").query("select sqlite_version() as version").get(),node,platform:process.platform,architecture:process.arch},null,2))'
           docker save --output test-results/runtime-image.tar or3-secrets-qualification:ci
-          docker run --rm --cap-drop ALL --security-opt no-new-privileges -v "$PWD/test-results/runtime-image.tar:/image.tar:ro" -v "$PWD/test-results:/results" aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e image --input /image.tar --scanners vuln --skip-version-check --no-progress --format json --output /results/runtime-image-scan.json
+          docker run --rm --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges -v "$PWD/test-results/runtime-image.tar:/image.tar:ro" -v "$PWD/test-results:/results" aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e --cache-dir /tmp/trivy image --input /image.tar --scanners vuln --skip-version-check --no-progress --format json --output /results/runtime-image-scan.json
           node -e 'const r=require("./test-results/runtime-image-scan.json");const v=r.Results.flatMap(x=>x.Vulnerabilities??[]);const n=v.filter(x=>["HIGH","CRITICAL"].includes(x.Severity)).length;if(n)console.log(`::warning::${n} high/critical OS package findings require review before production; qualification success is not runtime security approval`)'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
