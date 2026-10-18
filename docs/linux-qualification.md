@@ -1,12 +1,14 @@
-# Linux core qualification — 2026-10-18
+# Historical Linux core qualification — 2026-10-18
 
-Task 13 qualifies the disposable core workload on this computer. It does not deploy the service or approve a production environment. The machine receipts in `test-results/` accompany this record; the historical arm64 results in `implementation-receipt.md` are separate evidence.
+This record preserves PR #2's measurements at [`012f5c6`](https://github.com/Saluana/or3-secrets/commit/012f5c6cd220c1fef6e37b4137e3bb38e4ec8ea2). The subsequent security repairs and [current disposable qualification](local-qualification.md) supersede its implementation and test counts. Its original capacity runner and budgets remain available at that revision; the merged runner consolidates the same staged boundaries with the newer mixed inventory, live-admission guard and same-host CI baseline check.
+
+Task 13 qualified the disposable core workload on that computer. It does not deploy the service or approve a production environment. The machine receipts in `test-results/` accompany this record; the historical arm64 results in `implementation-receipt.md` are separate evidence.
 
 ## Profile and budgets selected before measurement
 
 Profile `linux-x64-local-v1`: Debian Linux 6.12.63+deb13-cloud-amd64, four AMD EPYC-Rome virtual CPUs, approximately 7.7 GiB RAM, ext4 (`rw,relatime,stripe=128`), Bun 1.3.14, actual Node 24.13.0. Node was downloaded and checksum-verified in the workspace; the system Node 20 and global Bun were not changed. This shared VPS had other workloads running; the measurements describe this run, not dedicated-machine SLOs.
 
-The preselected `scripts/linux-budgets.json` is the input to both runners. The small workload has 100 live 1 KiB values, with 200 sequential reads and 200 CAS writes. Budgets: startup at most 2 seconds, p95 per operation at most 50 ms, idle service RSS at most 128 MiB. The closed-loop measurements are single-client latency observations, not a concurrent throughput guarantee.
+The preselected `scripts/linux-budgets.json` at that revision supplied both original runners. The current file retains the small-workload budgets; current capacity budgets live in `scripts/qualify-capacity.ts`. The small workload has 100 live 1 KiB values, with 200 sequential reads and 200 CAS writes. Budgets: startup at most 2 seconds, p95 per operation at most 50 ms, idle service RSS at most 128 MiB. The closed-loop measurements are single-client latency observations, not a concurrent throughput guarantee.
 
 The aged workload contains 1,000 live secrets (evenly distributed 128 B, 1 KiB, 8 KiB and 32 KiB values, each rewritten to revision 2), 100 authenticated tombstones, and 32 service credentials plus operator authority. Offline authenticated status events age that inventory to exact 64 MiB, 256 MiB, 768 MiB and 1 GiB SQLite inputs. Their deliberately historical timestamps exercise sequence ordering; they do not represent a claim of elapsed retention time. Production code has no fixture-generation or failure-injection option.
 
@@ -26,16 +28,16 @@ bun run build
 bun run typecheck
 bun test --timeout 30000 tests
 OR3_QUALIFY_TMPDIR=/var/tmp bun --no-env-file scripts/qualify-linux.ts
-OR3_QUALIFY_TMPDIR=/var/tmp bun --no-env-file scripts/qualify-capacity.ts
-# Only Docker needs privilege. It creates no host users or host mounts.
-sudo sh scripts/qualify-privileged.sh
+bun --no-env-file scripts/qualify-capacity.ts --stages
+# Docker access is required. It creates no host users or host mounts.
+sh scripts/qualify-privileged.sh
 ```
 
-The privileged wrapper builds the pinned existing Dockerfile, drops capabilities, disables container networking and runs disposable tmpfs fixtures. ENOSPC runs as the non-root owner of the receipt directory with an exact 8 MiB `/tmp`; a separate private 128 MiB staging mount permits creating a genuine backup before testing restore's low-space refusal. A guard refuses to fill any other filesystem. Isolation provisions service UID 1000 and client UID 1001 sharing GID 2000 only inside the disposable container. The actual vault and Node client are unprivileged. Only the synthetic receipts are written back to the checkout. The unique image is removed afterward.
+The privileged wrapper builds the pinned existing Dockerfile, drops capabilities, disables container networking and runs disposable tmpfs fixtures. ENOSPC runs as the non-root owner of the receipt directory with an exact 8 MiB `/tmp`; a separate private 128 MiB staging mount holds a source vault and genuine backup before testing restore's low-space refusal. A guard refuses to fill any other filesystem. Isolation provisions service UID 1000 and client UID 1001 sharing GID 2000 only inside the disposable container. The actual vault and Node client are unprivileged. Only the synthetic receipts are written back to the checkout. The unique image is removed afterward.
 
 `qualify-linux.ts` checks file/directory fsync, the retained zeroed rollback journal under exclusive ownership, socket mode, this service's socket inodes against Linux TCP listen tables, and acknowledged-value recovery after SIGKILL. Service startup itself verifies the effective DELETE/EXCLUSIVE/EXTRA pragmas before returning status. Power failure, hypervisor cache loss and physical-device durability are unperformed.
 
-The collector fixture runs actual Node 24, durably writes a page, then receives SIGKILL before advancing its independent checkpoint. A resumed reader reloads that checkpoint, receives the identical frozen-head page and drains consecutive pages without gaps. A batch of 512 bad credentials must produce bounded sanitized coalesced stderr evidence. Expiry is observed using the actual clock. `timedatectl` records the NTP state and measured offset. No production time configuration is changed.
+The collector fixture runs actual Node 24, durably writes a page, then receives SIGKILL before advancing its independent checkpoint. A resumed reader reloads that checkpoint, receives the identical frozen-head page and drains consecutive pages without gaps. A batch of 512 bad credentials must produce bounded sanitized coalesced stderr evidence. Expiry is observed using the actual clock. `timedatectl` records the NTP state and measured offset when available. Disposable containers without a time daemon explicitly record an unmeasured clock, which remains a target-host acceptance gate. No production time configuration is changed.
 
 ## Monitoring responsibilities and remaining boundaries
 
@@ -46,7 +48,7 @@ The collector fixture runs actual Node 24, durably writes a page, then receives 
 | Infrastructure operator | Keep measured absolute NTP offset at most 1 second. Use sequences for ordering despite wall-clock changes. Alert below 8 GiB free, at 512 MiB database size, on nearing 1,000,000 wraps, or with under 24 hours of credential lifetime. Stop growth by 768 MiB and verify maintenance headroom on source and destination filesystems. |
 | Recovery/custody operator | Retain encrypted backups and keys under independently controlled custody, choose and prove the actual backup RPO, issue replacement service/audit authority after restore, reconcile upstream credential validity, and perform target power-loss qualification if required. |
 
-Healthy observed signals and adverse lag, drop, clock, expiry and disk inputs exercise the qualification assertions. These are fixture alert evaluations, not an installed production monitor or evidence that this VPS's existing alerting service delivered an incident notification. External retention, named human administration, independently protected keys, production RPO/RTO, power-loss evidence and independent security review remain deployment/release gates.
+The original runner evaluated representative healthy and adverse monitoring inputs. The merged runner retains the actual process observations; it removes self-tests of a fixture-only alert evaluator, which did not establish any production monitoring contract. These are fixture alert evaluations, not an installed production monitor or evidence that this VPS's existing alerting service delivered an incident notification. External retention, named human administration, independently protected keys, production RPO/RTO, power-loss evidence and independent security review remain deployment/release gates.
 
 ## Results
 
@@ -79,7 +81,7 @@ All stage timing and memory budgets passed without raising them. The exact 1 GiB
 
 Filesystem free space was sampled every 25 ms during each maintenance worker. The largest observed decrease from the pre-fixture baseline was 4,869,273,600 bytes (4.53 GiB), below the 8 GiB reservation. This shared-filesystem observation includes concurrent unrelated writes and can miss shorter peaks; it is not an exclusive-allocation guarantee. The tools' conservative headroom checks and the 8 GiB external reserve remain mandatory.
 
-The original four-stage receipt preserves these measurements. A separate `capacity-oversize.json` records the selective rerun of the oversize refusal after correcting the fixture's artificial page ceiling. That correction changes qualification storage generation only. Use `OR3_QUALIFY_TMPDIR=/var/tmp bun --no-env-file scripts/qualify-capacity.ts --oversize-only` to reproduce just that check.
+The original four-stage receipt preserves these measurements. A separate `capacity-oversize.json` records the selective rerun of the oversize refusal after correcting the fixture's artificial page ceiling. That correction changes qualification storage generation only. The merged capacity runner reuses its exact-cap fixture to test oversize refusal automatically, avoiding a second expensive aging pass.
 
 
 A **1,073,750,016-byte authenticated SQLite input** (8 KiB above the snapshot limit) was refused with `too_large` before backup output creation. The complete result is summarized in `test-results/task13-manifest.json`; raw stage and selective-refusal receipts are retained separately. **Task 13 is complete for this internal Linux profile.**

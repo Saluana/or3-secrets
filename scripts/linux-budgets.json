@@ -1,16 +1,14 @@
 {
-  "profile": "linux-x64-local-v1",
+  "profile": "linux-small-disposable-v1",
   "selectedBeforeMeasurements": "2026-10-18",
-  "small": { "secrets": 100, "samplesPerOperation": 200, "startupMs": 2000, "p95Ms": 50, "idleRssBytes": 134217728 },
-  "capacity": {
-    "liveSecrets": 1000, "tombstones": 100, "serviceTokens": 32,
-    "valueSizesBytes": [128, 1024, 8192, 32768],
-    "stagesBytes": [67108864, 268435456, 805306368, 1073741824],
-    "startupMs": 120000, "verifyMs": 240000, "backupMs": 240000,
-    "restoreMs": 600000, "rekeyMs": 600000,
-    "maxRssBytes": 536870912, "minimumFreeBytes": 8589934592,
-    "operatingWarningBytes": 536870912, "operatingStopBytes": 805306368
+  "small": {
+    "secrets": 100,
+    "samplesPerOperation": 200,
+    "startupMs": 2000,
+    "p95Ms": 50,
+    "idleRssBytes": 134217728
   },
-  "monitoring": { "pollSeconds": 30, "collectorLagSeconds": 60, "missingSummarySeconds": 60, "clockOffsetMs": 1000, "expiryWarningSeconds": 86400, "minimumFreeBytes": 8589934592, "dropAlertAbove": 0 },
-  "recovery": { "committedCrashLoss": 0, "fixtureRestoreRtoMs": 600000, "backupRpo": "to independently retained snapshot checkpoint; no automatic backup schedule qualified" }
+  "monitoring": {
+    "clockOffsetMs": 1000
+  }
 }

@@ -8,6 +8,7 @@ export const cliOptions: Record<string, { value?: string; description: string }>
   'key-file': { value: 'FILE', description: 'Private master-key file, outside the vault directory.' },
   'operator-file': { value: 'FILE', description: 'New private operator credential file; must not exist.' },
   socket: { value: 'PATH', description: 'Unix socket path for the running service.' },
+  'service-uid': { value: 'UID', description: 'Expected service/socket owner UID; defaults to your UID.' },
   'socket-group': { value: 'GID', description: 'Numeric client group; socket directory must already match.' },
   'token-file': { value: 'FILE', description: 'Private credential file; never the credential itself.' },
   'vault-id': { value: 'ID', description: '32-character vault ID printed by init.' },
@@ -82,6 +83,10 @@ export const cliCommands: Record<string, Command> = {
   restore: { summary: 'Restore an encrypted backup to a fresh-key copy.', required: ['backup-file', 'key-file', 'destination', 'new-key-file', 'operator-file'], optional: ['receipt-file'], example: 'or3-secrets restore --backup-file ./snapshot.backup --key-file ./master.key \\\n  --destination ./restored --new-key-file ./restored.key --operator-file ./restored.token', notes: ['All destination paths must be new. All copied credentials are revoked; use the new operator file to issue new ones.', 'The source is preserved. Reconcile restored upstream credentials before reconnecting real consumers.'] },
   rekey: { summary: 'Copy a stopped vault under a fresh master key.', required: ['vault-dir', 'key-file', 'destination', 'new-key-file', 'operator-file'], optional: ['receipt-file'], example: 'or3-secrets rekey --vault-dir ./vault --key-file ./master.key \\\n  --destination ./rekeyed --new-key-file ./rekeyed.key --operator-file ./rekeyed.token', notes: ['Stop the service first. All destination paths must be new; the source is preserved.', 'All copied credentials are revoked. Retain old keys for retained backups.'] },
 };
+
+for (const command of Object.values(cliCommands)) {
+  if (command.required.includes('token-file')) command.optional = [...command.optional ?? [], 'service-uid'];
+}
 
 export function cliHelp(command = ''): string | undefined {
   const definition = Object.hasOwn(cliCommands, command) ? cliCommands[command] : undefined;

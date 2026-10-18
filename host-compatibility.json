@@ -1,0 +1,6 @@
+{
+  "repository": "Saluana/or3-chat",
+  "revision": "f4e6bd2f97d26c0d8025bd7490c35da395e145a2",
+  "integrationBranch": "codex/or3-secrets-provider-integration",
+  "minimumContract": "server/secrets/registry plus authenticated /api/plugins/secrets and activation-aware remembered host.secrets"
+}
