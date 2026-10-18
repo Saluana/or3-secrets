@@ -13,10 +13,66 @@ import {
   writeFileSync,
   statSync,
   renameSync,
+  mkdirSync,
+  copyFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { Fixture, cli, scope } from './helpers';
 import { createClient } from '../src/client';
+
+// A restored filesystem snapshot can fork an admitted lineage without exposing
+// its key. Prior replay tests only substituted different revision numbers. A
+// retained receipt must also reject a valid same-revision row from another fork.
+test('retained audit receipt binds same-revision contents across database forks', async () => {
+  const f = new Fixture();
+  const original = f.vault,
+    fork = join(f.root, 'fork');
+  try {
+    await f.start();
+    const t = await f.token();
+    const put = (value: string, expectedRevision: number) =>
+      f.call('secrets/put', { scope, name: 'forked', value, expectedRevision }, t.token);
+    expect((await put('synthetic-seed', 0)).status).toBe(200);
+    await f.stop();
+    mkdirSync(fork, { mode: 0o700 });
+    for (const name of ['vault.sqlite', 'complete'])
+      copyFileSync(join(original, name), join(fork, name));
+    f.logs = '';
+    await f.start();
+    expect((await put('synthetic-original', 1)).status).toBe(200);
+    await f.stop();
+    const receiptFile = join(f.root, 'retained.json');
+    const receipt = cli(['audit', 'verify', '--vault-dir', original, '--key-file', f.key]);
+    expect(receipt.status).toBe(0);
+    writeFileSync(receiptFile, receipt.stdout, { mode: 0o600 });
+
+    f.vault = fork;
+    f.logs = '';
+    await f.start();
+    expect((await put('synthetic-other-branch', 1)).status).toBe(200);
+    await f.stop();
+    const branchDb = new Database(join(fork, 'vault.sqlite'));
+    const other = branchDb.query('SELECT envelope,updated_at,mac FROM secrets').get() as {
+      envelope: string;
+      updated_at: number;
+      mac: string;
+    };
+    branchDb.close();
+    const db = new Database(join(original, 'vault.sqlite'));
+    db.query('UPDATE secrets SET envelope=?,updated_at=?,mac=?')
+      .run(other.envelope, other.updated_at, other.mac);
+    db.close();
+    const refused = cli([
+      'audit', 'verify', '--vault-dir', original, '--key-file', f.key,
+      '--receipt-file', receiptFile,
+    ]);
+    expect(refused.status, 'a foreign revision-2 row must not pass the retained original receipt')
+      .toBe(65);
+    expect(JSON.parse(refused.stderr).error.code).toBe('integrity_failure');
+  } finally {
+    await f.close();
+  }
+});
 
 // Admission checks must retain the existing fail-stop contract for real storage
 // failures. Moving the live database is an external fault, not a production seam.

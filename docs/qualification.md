@@ -14,6 +14,8 @@ bun run qualify
 
 The full suite must have permission to bind local Unix sockets. Its CLI/Node roundtrip covers exact bytes/private output, capability/scope isolation, expiry/revocation, concurrency/tombstones, hostile schema/state, wrong vault, audit cursor/frozen-head semantics, crash/restart and fresh-key recovery. Never run tests against real credentials.
 
+The same-revision fork regression creates two valid revision-2 rows under one key lineage, substitutes the foreign row while preserving the original audit/receipt, and requires `integrity_failure`. Run it alone with `bun test --timeout 30000 tests/review.test.ts -t 'retained audit receipt binds'`. Before the repair it incorrectly exited 0; the failing JUnit evidence is `test-results/fork-replay-before.xml`. The final suite's `test-results/bug-hunt-tests.xml` also covers mutation after rekey followed by a second recovery. Use `--reporter=junit --reporter-outfile=...` to retain a new repeatable receipt.
+
 ## Linux qualification
 
 The pinned Dockerfile combines Bun 1.3.14 and actual Node 24.13.0; Bun's own `process.versions.node` is an emulation version and is not the Node client version. Docker Desktop's Linux VM is the measured environment, not a claim about every Linux filesystem or production hardware.

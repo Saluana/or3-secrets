@@ -101,6 +101,8 @@ Add `--receipt-file` containing a separately retained private receipt to backup/
 
 An authenticated old snapshot still contains old upstream credentials. Reconcile restored values against issuance/revocation records and rotate/revoke upstream credentials as required; encryption does not make an old value valid. Interrupted destinations without `complete` cannot serve. Preserve source and failed private staging/outputs for controlled diagnosis; choose wholly new output paths for a retry. Never replace/delete a live deployment or recovery key automatically.
 
+The current unpublished format requires a row-content binding (`detail.recordMac`) on each successful secret mutation. Earlier fixtures missing it fail verification, service admission and maintenance. Preserve any needed old fixture and key for a separately reviewed recovery procedure; no automatic conversion is attempted. Deploy matching service/audit-client builds because older strict audit clients cannot parse the added event field. Ordinary OR3 secret calls keep the same contract.
+
 Before real deployment, name control owners, numeric latency/memory/downtime/RPO/RTO/retention budgets, storage/power-loss qualification and independent review gates in the security profile. No publication, live deployment or credential migration is part of this walkthrough.
 
 ## Post-review operating invariants

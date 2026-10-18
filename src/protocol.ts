@@ -171,10 +171,11 @@ export function parseAuditEvent(value: unknown): void {
   for (const key of ['tokenId', 'scopeId', 'recordId']) if (r[key] !== undefined && (typeof r[key] !== 'string' || !/^[a-f0-9]{32,64}$/.test(r[key]))) fail('integrity_failure', 503);
   if (r.revision !== undefined) integer(r.revision, 1);
   if (r.detail !== undefined) {
-    const detail = object(r.detail, ['after', 'through', 'returned', 'priorReceipt', 'targetTokenId', 'wrapCount'], []);
+    const detail = object(r.detail, ['after', 'through', 'returned', 'priorReceipt', 'targetTokenId', 'wrapCount', 'recordMac'], []);
     for (const key of ['after', 'through', 'returned']) if (detail[key] !== undefined) integer(detail[key]);
     if (detail.targetTokenId !== undefined && (typeof detail.targetTokenId !== 'string' || !/^[a-f0-9]{32}$/.test(detail.targetTokenId))) fail('integrity_failure', 503);
     if (detail.wrapCount !== undefined) integer(detail.wrapCount, 0, MAX_WRAPS);
+    if (detail.recordMac !== undefined && (typeof detail.recordMac !== 'string' || !/^[a-f0-9]{64}$/.test(detail.recordMac))) fail('integrity_failure', 503);
     if (detail.priorReceipt !== undefined) { const receipt = object(detail.priorReceipt, ['vaultId', 'seq', 'mac']); identifier(receipt.vaultId); parseCursor({ seq: receipt.seq, mac: receipt.mac }); }
   }
 }

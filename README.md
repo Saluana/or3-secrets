@@ -22,6 +22,8 @@ Ctrl-C or SIGTERM stops the foreground service gracefully; successful cleanup ex
 
 The [internal security review](docs/security-review.md) records the replay, filesystem, redirect and admission fixes and their regression evidence. The [subsequent review remediation](docs/review-remediation.md) tracks the index, custody, admission, recovery and qualification fixes, including outstanding publication and runtime-stack gates. Earlier development vaults without the new audit state evidence are refused; create a fresh disposable vault rather than reusing or overwriting those fixtures.
 
+Successful secret mutations now bind the complete authenticated row into their audit event. This also rejects a valid same-revision row from a different database branch, even when the original branch's retained receipt still matches. Unpublished fixtures with secret mutations lacking `detail.recordMac` fail closed; preserve their files and keys for separately reviewed recovery. Update the service and audit-export client together because strict older audit clients reject the new event field. The OR3 secret-operation API is unchanged.
+
 ## Node client
 
 ```ts

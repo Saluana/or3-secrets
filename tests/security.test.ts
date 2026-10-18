@@ -334,6 +334,16 @@ scenario('encrypted backup, fresh-key restore/rekey and tampered envelope reject
       expect((await f.call('status', {}, t.token)).status).toBe(401);
       const fresh = await f.token();
       expect((await f.call('secrets/resolve', { scope, selector: { name: 'recover' } }, fresh.token)).data.value).toBe(canary);
+      if (operation === 'rekey') {
+        // A later mutation and second recovery must translate the latest row
+        // binding without confusing it with the first recovery's old revision.
+        expect((await f.call('secrets/put', { scope, name: 'recover', value: 'synthetic-after-recovery', expectedRevision: 1 }, fresh.token)).status).toBe(200);
+        await f.stop();
+        const next = join(f.root, 'second-recovery'), nextKey = join(f.root, 'second.key');
+        const again = cli(['rekey', '--vault-dir', dest, '--key-file', newKey, '--destination', next, '--new-key-file', nextKey, '--operator-file', join(f.root, 'second.token')]);
+        expect(again.status, again.stderr).toBe(0);
+        expect(cli(['audit', 'verify', '--vault-dir', next, '--key-file', nextKey]).status).toBe(0);
+      }
       await f.stop(); f.vault = savedVault; f.key = savedKey; f.operatorFile = savedOperator;
     }
     const bad = join(f.root, 'bad.backup'); const bytes = readFileSync(backup); bytes[bytes.length - 1]! ^= 1; writeFileSync(bad, bytes, { mode: 0o600 });

@@ -118,6 +118,7 @@ type AuditPayload = {
     priorReceipt?: Receipt;
     targetTokenId?: string;
     wrapCount?: number;
+    recordMac?: string;
   };
 };
 type Keys = { wrap: Buffer; record: Buffer; audit: Buffer; verify: Buffer };
@@ -356,8 +357,23 @@ export class Vault {
             copied.mac = mac(vault.keys.record, 'token', tokenFields(copied));
             vault.insertToken(copied);
           }
-          for (const old of source.auditRows())
-            vault.appendPayload(parsed<AuditPayload>(old.payload));
+          for (const old of source.auditRows()) {
+            const event = parsed<AuditPayload>(old.payload);
+            if (
+              event.outcome === 'success' &&
+              ['secrets/put', 'secrets/delete'].includes(event.operation)
+            ) {
+              // The copied chain uses a fresh key. Translate only the binding
+              // for each current revision; the recovery event anchors the
+              // unchanged source chain through its independently retained head.
+              const current = db
+                .query('SELECT revision,mac FROM secrets WHERE id=?')
+                .get(event.recordId!) as { revision: number; mac: string } | null;
+              if (current && current.revision === event.revision)
+                event.detail = { ...event.detail, recordMac: current.mac };
+            }
+            vault.appendPayload(event);
+          }
         }
         const operator: TokenRow = {
           id: credential.id,
@@ -516,7 +532,7 @@ export class Vault {
     // Row MACs alone cannot detect removal or replay of an older, valid row.
     // Reconcile the current inventory with the authenticated mutation history.
     // Negative revisions represent tombstones; token values represent revocation.
-    const secrets = new Map<string, number>(),
+    const secrets = new Map<string, { revision: number; mac: string }>(),
       tokens = new Map<string, boolean>();
     let wrapCount: number | undefined;
     let previous = ZERO_MAC,
@@ -550,12 +566,16 @@ export class Vault {
             fail('integrity_failure', 503);
           tokens.set(id, event.operation === 'tokens/revoke');
         } else if (event.operation === 'secrets/put' || event.operation === 'secrets/delete') {
-          if (!event.recordId || event.revision !== Math.abs(secrets.get(event.recordId) ?? 0) + 1)
+          if (
+            !event.recordId ||
+            !event.detail?.recordMac ||
+            event.revision !== Math.abs(secrets.get(event.recordId)?.revision ?? 0) + 1
+          )
             fail('integrity_failure', 503);
-          secrets.set(
-            event.recordId,
-            event.operation === 'secrets/delete' ? -event.revision : event.revision,
-          );
+          secrets.set(event.recordId, {
+            revision: event.operation === 'secrets/delete' ? -event.revision : event.revision,
+            mac: event.detail.recordMac,
+          });
           if (event.operation === 'secrets/put') {
             if (
               event.detail?.wrapCount === undefined ||
@@ -573,7 +593,11 @@ export class Vault {
     for (const row of this.secretRows()) {
       this.verifySecret(row);
       if (row.state === 'available') this.plaintext(row);
-      if (secrets.get(row.id) !== (row.state === 'deleted' ? -row.revision : row.revision))
+      const committed = secrets.get(row.id);
+      if (
+        committed?.revision !== (row.state === 'deleted' ? -row.revision : row.revision) ||
+        !equal(committed.mac, row.mac)
+      )
         fail('integrity_failure', 503);
       secrets.delete(row.id);
     }
@@ -994,7 +1018,7 @@ export class Vault {
       token.id,
       scope,
       'success',
-      changed.state === 'available' ? { wrapCount: this.header.wrap_count } : undefined,
+      { recordMac: changed.mac, ...(changed.state === 'available' ? { wrapCount: this.header.wrap_count } : {}) },
       changed,
     );
     return metadata(changed);
