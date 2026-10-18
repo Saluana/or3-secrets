@@ -35,9 +35,9 @@ For the first publication, use the commands above with an authenticated npm owne
 
 ## Automated publishing after operator authorization
 
-Push only `v<version>` pointing to the verified remote main commit. The tag runs the full qualification again and publishes the exact checksummed tarball from that run. Both jobs check tag/version alignment, clean committed sources, unused npm version, and that main still points to the candidate. Publishing has a separate OIDC permission boundary; pull requests, branch pushes, and manual dispatch never publish. Pinned Node 24.13.0 includes npm 11.6.2, which supports OIDC. No package lifecycle scripts run during publication.
+Push only `v<version>` pointing to the verified remote main commit. The tag reuses the exact checksummed tarball from successful main qualification for that commit; it does not repeat qualification or rebuild. The publishing job requires a successful main push run, a tag commit in main history, tag/version alignment, clean committed sources, an unused npm version, and a matching artifact receipt. Publishing has a separate OIDC permission boundary; pull requests, branch pushes, and manual dispatch without a release tag never publish. Pinned Node 24.13.0 includes npm 11.6.2, which supports OIDC. No package lifecycle scripts run during publication.
 
-If the tag workflow fails, keep the tag immutable, fix the problem, and prepare a new patch version. Do not use manual publishing to bypass a failed gate.
+If publishing is interrupted after main qualification passed, keep the tag immutable and retry with `gh workflow run qualify.yml --ref main -f release_tag=v<version>`. This downloads and verifies the same qualified artifact; it does not bypass qualification. Missing or expired artifacts require new qualification. If the package itself needs a correction, use a new patch version. Never overwrite a published version or move a release tag.
 
 After success, separately verify `npm view @or3/secrets@<version> version dist.integrity dist.shasum`, compare integrity with the qualification receipt, and run `npx --yes --cache <new-empty-directory> @or3/secrets@<version> --help` with qualified Bun on PATH. Preserve a release receipt containing version, source SHA, workflow URL, npm integrity, and clean-cache CLI result. Update consuming OR3 dependencies only after npm serves the exact version.
 
