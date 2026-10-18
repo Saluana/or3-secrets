@@ -65,7 +65,10 @@ jobs:
       - name: Linux mixed inventory and exact capacity recovery
         run: |
           docker run --rm --network none --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,size=256m,mode=1777 -v "$PWD:/work:ro" -v "$PWD/test-results:/work/test-results" or3-secrets-qualification:ci sh -c 'bun --no-env-file scripts/qualify-profile.ts && cp test-results/profile.json test-results/profile-linux.json'
-          docker run --rm --network none --memory 1g --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges -v "$PWD:/work:ro" -v "$PWD/test-results:/work/test-results" or3-secrets-qualification:ci bun --no-env-file scripts/qualify-capacity.ts
+          baseline="$(mktemp -d)"
+          trap 'rm -rf "$baseline"' EXIT
+          git archive 0888b45cea9428e9daf769a976b45d082187c3e1 src | tar -xf - -C "$baseline"
+          docker run --rm --network none --memory 1g --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges -e CI=true -e OR3_SECRETS_CAPACITY_BASELINE=/baseline -v "$baseline:/baseline:ro" -v "$PWD:/work:ro" -v "$PWD/test-results:/work/test-results" or3-secrets-qualification:ci bun --no-env-file scripts/qualify-capacity.ts
       - name: Full-source secret scan
         run: >-
           docker run --rm --network none --user "$(id -u):$(id -g)"

@@ -25,6 +25,8 @@ The Linux ARM64 Docker profile used Bun 1.3.14, actual Node 24.13.0, a 1 GiB con
 
 The database was exactly 1,073,741,824 bytes, and its encrypted envelope exactly 112 bytes larger. Live admission correctly returned `capacity_reached`. Recovered databases were 1,073,094,656 bytes, still above the 960 MiB live high-water mark. Successful offline recovery therefore does **not** authorize starting those destinations for live work. Preserve their source, keys and history and review capacity explicitly. No automatic pruning or raised limit was added. The qualifier requires at least 6 GiB free disposable storage; production headroom and recovery objectives require measurement on the intended host.
 
+These numbers describe ARM64. The [initial x64 CI run](https://github.com/Saluana/or3-secrets/actions/runs/39140855005) completed recovery but failed the 45 s verification gate. The x64-baseline Bun build has a separately declared CI ceiling and must also pass a same-host verification comparison against commit `0888b45cea9428e9daf769a976b45d082187c3e1` on the same fixture, within 20%. See [reproduction and ceilings](qualification.md). Failure timings are retained, and neither the ARM64 budgets nor the job timeout were increased. A passing comparison and full capacity receipt are required before accepting that CI profile.
+
 ## Separate production and release acceptance
 
 Repository maintainers own executable local checks and their receipts. A deployment owner must assign actual people and obtain the following evidence before claiming production acceptance. No production owner or named host was supplied for this local work.
