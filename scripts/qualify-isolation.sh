@@ -23,8 +23,11 @@ node -e 'const f=require("fs");let n=0;const t=setInterval(()=>{if(f.existsSync(
 service bun --no-env-file src/cli.ts token issue --socket "$root/run/api.sock" --vault-id "$vault_id" --token-file "$root/custody/operator.token" --kind service --namespace isolated --capabilities metadata,read,write,delete --expires-in 1h --out-file "$root/custody/client.token" > /dev/null
 install -o 1001 -g 1001 -m 600 "$root/custody/client.token" "$root/client/service.token"
 client node --input-type=module -e '
-import{readFileSync}from"node:fs";import{createClient}from"/work/dist/client.js";
+import{readFileSync,statSync}from"node:fs";import{createClient}from"/work/dist/client.js";
 const[root,vaultId]=process.argv.slice(1);
+if(process.getuid()!==1001||process.getgid()!==1001)throw new Error("client identity mismatch");
+const socket=statSync(`${root}/run/api.sock`),dir=statSync(`${root}/run`);
+if(socket.uid!==1000||socket.gid!==2000||(socket.mode&0o777)!==0o660||dir.uid!==1000||dir.gid!==2000||(dir.mode&0o777)!==0o750)throw new Error("socket ownership/mode mismatch");
 for(const path of ["custody/master.key","custody/operator.token","custody/vault/vault.sqlite"]){let denied=false;try{readFileSync(`${root}/${path}`)}catch(e){denied=e.code==="EACCES"}if(!denied)throw new Error("custody boundary failed")}
 const c=createClient({socketPath:`${root}/run/api.sock`,tokenFile:`${root}/client/service.token`,vaultId});const scope={namespace:"isolated",ownerUserId:"u",workspaceId:"w",consumerId:"p"};await c.put({scope,name:"probe",value:"synthetic-isolation",expectedRevision:0});if((await c.resolve({scope,selector:{name:"probe"}})).value!=="synthetic-isolation")process.exit(2);
 ' "$root" "$vault_id"
@@ -37,4 +40,4 @@ chmod 700 "$root/foreign/leaf"
 if service bun --no-env-file src/cli.ts init --vault-dir "$root/foreign/leaf/vault" --key-file "$root/foreign/leaf/key" --operator-file "$root/foreign/leaf/token" > /dev/null 2>&1; then
     printf '%s\n' 'Foreign-owned ancestor was incorrectly admitted' >&2; exit 1
 fi
-node -e 'require("fs").writeFileSync("/receipts/isolation.json",JSON.stringify({serviceUid:1000,clientUid:1001,sharedGid:2000,custodyRead:"denied",socketRoundtrip:"passed",node:process.version},null,2))'
+node -e 'require("fs").writeFileSync("/receipts/isolation.json",JSON.stringify({serviceUid:1000,clientUid:1001,sharedGid:2000,socketMode:"0660",socketDirectoryMode:"0750",custodyRead:"denied",socketRoundtrip:"passed",node:process.version},null,2))'

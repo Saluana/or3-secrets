@@ -16,7 +16,9 @@ The full suite must have permission to bind local Unix sockets. Its CLI/Node rou
 
 ## Linux qualification
 
-The pinned Dockerfile combines Bun 1.3.14 and actual Node 24.13.0; Bun's own `process.versions.node` is an emulation version and is not the Node client version. Docker Desktop's Linux VM is the measured environment, not a claim about every Linux filesystem or production hardware.
+The current x86_64 task 13 profile, preselected budgets, mixed-inventory stages, results and monitoring boundaries are recorded in [Linux core qualification](linux-qualification.md).
+
+The pinned Dockerfile combines Bun 1.3.14 and actual Node 24.13.0; Bun's own `process.versions.node` is an emulation version and is not the Node client version. The original arm64 measurements used Docker Desktop's Linux VM. The current x86_64 run uses this computer's native Linux/ext4 profile plus disposable Docker tmpfs isolation checks; neither profile qualifies every Linux filesystem or production host.
 
 ```sh
 docker build -f scripts/Qualification.Dockerfile -t or3-secrets-qualification:local .
@@ -26,6 +28,7 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
   or3-secrets-qualification:local bun test --timeout 30000 tests
 docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
   --tmpfs /tmp:rw,nosuid,nodev,size=8m,mode=1777 \
+  --tmpfs /staging:rw,nosuid,nodev,size=128m,mode=700,uid=1000,gid=1000 \
   -v "$PWD:/work:ro" -v "$PWD/test-results:/receipts" \
   or3-secrets-qualification:local bun --no-env-file scripts/qualify-disk.ts
 ```
@@ -40,6 +43,6 @@ The host qualification uploads a synthetic trusted-host package through the real
 
 `sh scripts/qualify-isolation.sh` is run as root only inside a disposable Linux container to provision service UID 1000 and client UID 1001 sharing GID 2000; the actual service/client run unprivileged. It proves socket access while database/master/operator reads are denied and refuses foreign-owned ancestors.
 
-`bun --no-env-file scripts/qualify-capacity.ts` builds an authenticated aged history at the exact declared 1 GiB boundary, measures full verification/backup/fresh-key restore/rekey, records envelope size, timings and runtime-reported RSS, then removes only its own disposable fixture. It needs several GiB of temporary space. Compare actual results with numeric budgets selected **before** production qualification. Do not call a near-limit history an exact-limit fixture or infer every workload's capacity from it.
+`bun --no-env-file scripts/qualify-capacity.ts` builds the declared mixed secret/token/tombstone inventory with authenticated aged histories at 64 MiB, 256 MiB, 768 MiB and the exact declared 1 GiB boundary, measures full verification/backup/fresh-key restore/rekey, records envelope size, timings and runtime-reported RSS, then removes only its own disposable fixture. It requires at least 8 GiB free; set `OR3_QUALIFY_TMPDIR` to a safe parent on the target persistent filesystem. It enforces the numeric budgets in `scripts/linux-budgets.json`, selected before measurement. Do not call a near-limit history an exact-limit fixture or infer every workload's capacity from it.
 
 The OR3 host verification commands and measured results are recorded in `docs/implementation-receipt.md`. Remaining release/deployment/independent-review gates are explicitly retained there and in the planning checklist. A repeatable application test suite does not certify a deployment or high-value use.

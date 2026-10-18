@@ -72,11 +72,13 @@ Completed preparation: initialized this repository on `main`, inspected OR3's cu
   - Reuse task 11's verified fresh-key copy for a stopped source vault, without a second encryption/copy implementation. Re-authenticate records/header/history, link receipts, count actual destination wraps, and replace operator/service/audit authority. Do not reset a populated destination's wrapping count to zero.
   - **Done when:** source and destination independently verify with their own keys, old tokens fail at the destination, new tokens resolve the original synthetic data, interrupted output never replaces the source, and documentation distinguishes custody rekey from issuer-side credential revocation.
 
-- [ ] **13. Qualify core recovery, audit growth, and resource limits on Linux.** Depends on: 12. Requirements: R1, R2, R4, R5, R6, R8, R11, R12.
+- [x] **13. Qualify core recovery, audit growth, and resource limits on Linux.** Depends on: 12. Requirements: R1, R2, R4, R5, R6, R8, R11, R12.
   - Run the previously authored crash and actual filesystem write-failure scenarios in disposable Linux storage; add no test-only failure flags to production code. Record effective journal/locking/EXTRA modes and file/directory sync behavior. Distinguish process-crash evidence from any separately performed power-loss durability check.
   - Verify separate effective OR3/service identities and socket permissions without database/key access. Exercise bounded failed-access evidence, collector interruption/recovery and lag/drop alerts, time assumptions, and disk thresholds using existing operational tooling.
   - Record numeric resource and recovery budgets before qualification. Measure idle RSS, startup, and latency for the small workload, then verification/startup/backup/restore/rekey costs and disk growth for aged audit fixtures through the supported maximum snapshot size. Include maintenance headroom and oversize refusal; qualify the supported operating volume against those budgets and revise the declared envelope if measurements fail, without adding caching or automatic pruning.
   - **Done when:** the core qualification evidence records actual Linux security/recovery outcomes, no TCP listener, deployment isolation, resource/maintenance bounds, and monitoring responsibilities. Unsupported or untested profiles are identified rather than called qualified.
+
+  - **Executed:** Linux x86_64/ext4, pinned Bun/Node, real ENOSPC and distinct effective identities, collector crash/recovery, bounded diagnostics, preset budgets, mixed inventory through the exact 1 GiB boundary and oversize refusal. See [the task 13 qualification record](../../docs/linux-qualification.md). Power-loss and live production alert delivery remain explicitly unqualified.
 
 - [x] **14. Add OR3's distinct secret-provider seam.** Depends on: 8, 13. Requirements: R9, R10.
   - Work only on relevant OR3 server config/registry files; preserve existing dirty files. Use the runtime-config registry helper and add private selection/config validation.
@@ -119,9 +121,9 @@ Completed preparation: initialized this repository on `main`, inspected OR3's cu
 
 ## Qualification status after implementation
 
-Tasks 1–12 and 14–17 have product implementations and executable evidence in the receipt. The remaining unchecked tasks contain broader gates, not missing API/CLI/provider code:
+Tasks 1–17 have product implementations and executable evidence in the receipt and the task 13 Linux qualification record. The remaining unchecked tasks contain broader gates, not missing API/CLI/provider code:
 
-- **13:** Linux security, ENOSPC, distinct identities and exact 1 GiB audit-history recovery pass. Target-host numeric budgets, mixed-secret aged workload and storage/power-loss acceptance remain unperformed.
+- **13 (complete for the internal Linux profile):** Preset numeric budgets, mixed secret/token/tombstone inventories through exact 1 GiB, ENOSPC, distinct identities, collector crash recovery, bounded diagnostics and oversize refusal pass on Linux x86_64/ext4. See [the qualification record](../../docs/linux-qualification.md). Storage power-loss acceptance and live production alert delivery remain unperformed deployment gates.
 - **18:** Actual packaged Nuxt/Nitro provider, private bundle scan, Node/service outage, and 129 tests across ten affected OR3 suites pass. The repeatable full-app browser/package/session walkthrough now passes through real upload/review/canary/promotion and Chat activation, including persistence, session cleanup, workspace/grant fencing and live vault restart. See `scripts/qualify-host.ts` and ignored `test-results/host-browser.json`; production deployment acceptance remains separate.
 - **19:** Operator/provider/public docs are written and CLI/recovery commands exercised with disposable fixtures. Production human administration/MFA, external collector/alerts, retention and separately controlled recovery custody are not evidenced.
 - **20:** Internal review/simplification, builds/typechecks, clean tarball, SBOM/advisory/material scans and local artifact provenance pass. Independent security/crypto review, release signing and target deployment acceptance remain external gates. No publication is authorized by these checkmarks.

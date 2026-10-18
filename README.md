@@ -2,7 +2,7 @@
 
 A small Bun service, CLI, Node client, and optional OR3 Nuxt provider. One Unix socket and one private SQLite database; encrypted secret values, scoped expiring tokens, compare-and-set revisions, required authenticated audit, and fresh-key recovery.
 
-**Development implementation, unpublished (`0.0.0`).** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](docs/qualification.md), and the [production control gates](planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
+**Development implementation, unpublished (`0.0.0`).** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](docs/qualification.md), [Linux core measurements](docs/linux-qualification.md), and the [production control gates](planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
 
 ```sh
 # Use exactly Bun 1.3.14 on PATH; do not upgrade another project's global runtime.
