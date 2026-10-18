@@ -1,0 +1,69 @@
+# Planned production security profile
+
+**Status: proposed, not qualified.** This describes the supported initial deployment and its acceptance gates. Implementation, operational evidence, independent review, and any compliance assessment are pending. It grants no certification and makes no PCI DSS, SOC 2, NIST, GDPR, HIPAA, or FIPS compliance claim. Read with [requirements](requirements.md), [design](design.md), and [tasks](tasks.md).
+
+## Assurance decision before runtime commitment
+
+- Record the deployment's applicable controls and required assurance before fixing the runtime and cryptographic backend. Bun with `node:crypto` is the default candidate, with **no FIPS validation claim**. API compatibility and selecting AES do not establish module validation. [Bun compatibility](https://bun.com/docs/runtime/nodejs-compat#node-crypto), [NIST CAVP](https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program).
+- If the intended deployment requires validated cryptography, identify the exact module certificate, version, approved configuration, operating environment, and required algorithms before implementation. Qualify that complete path or change the runtime choice. Do not add a generic crypto plugin system or assume a library name satisfies the requirement. [NIST CMVP](https://csrc.nist.gov/projects/cryptographic-module-validation-program).
+- Pin and test the actual Bun build, embedded SQLite, OS/filesystem, and Node client versions. Upstream source reviews and this plan are not evidence that those combinations pass. Independent security review and resolution or explicit assessment of material findings are gates before high-value or regulated use.
+
+## Required deployment boundary
+
+| Boundary | Supported deployment requirement |
+| --- | --- |
+| Process identity | A dedicated vault service UID distinct from OR3 is mandatory. Qualify effective host UID/GID mappings when containers are used; separate container names alone are insufficient. Root, the kernel, and the vault service identity remain trusted. |
+| Socket | Use a private Unix socket directory owned by the service, with a deliberately managed client group. Example: directory `0750`, socket `0660`. Group membership permits connection, not secret authority; bearer authorization is still required. OR3 cannot replace the directory or socket. |
+| Private custody | Vault/key directories are `0700` and private files `0600`, with validated ownership and file types. Share only the socket and OR3's scoped token with OR3. Do not share the database, master key, operator credential, maintenance staging, or backup-key mount. |
+| Backup boundary | Keep recovery key material outside both the database directory and its backup/snapshot capture scope, with separate access and recovery custody. A different filename on the same broadly readable volume is not isolation. Test recovery of both independently protected parts. |
+| Storage | One owner, one local filesystem, no network filesystem or replication. Verify `journal_mode=DELETE` and `synchronous=EXTRA`; qualify filesystem sync behavior and power-loss durability. A process-kill test alone does not establish power-loss durability. [SQLite synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous). |
+| Network | The core has no TCP listener or TLS termination. Local IPC security is an explicit boundary. OR3's public HTTPS, administrative remote-access transport, and any remote audit transport need their own trusted certificates, secure configurations, and access controls. Unauthenticated socket forwarding is unsupported. |
+
+The vault cannot contain a compromised authorized consumer or host administrator. Avoid plaintext copies and clear owned mutable buffers where possible, without promising JavaScript memory erasure. Permissions, scope checks, and encryption address different threats and are all required.
+
+## Human administration and credential lifecycle
+
+- Require named administrators using an MFA-protected host/bastion/PAM entry path. Independently protected session records must link token administration and offline maintenance to an individual and the vault event or maintenance receipt. A shared bearer credential or client-supplied actor label does not prove individual identity or MFA.
+- Enumerate every bypass path, including direct operator-token use, local privileged shells, key-file access, restore, and rekey. Restrict these paths to the approved administrative route and test inherited controls. If attribution or MFA cannot be demonstrated, the deployment fails this profile; the core does not build an identity provider.
+- The operator credential cannot call ordinary secret routes, but **can issue a token that reads secrets**. Treat it as full vault authority, not separation of duties. Any additional dual-control requirement for applicable manual cleartext key management needs a qualified operational procedure, not an implied guarantee from this token distinction.
+
+| Rotation | Required operational distinction |
+| --- | --- |
+| Service token | Issue a scoped replacement, update the consumer's private credential file, verify access, then revoke the previous token. Expiry and revocation govern subsequent authorization; already admitted operations may finish. |
+| Vault key | Use verified offline rekey into a new destination with fresh key material and fresh authority. Restore likewise rotates to a fresh master before accepting writes; no writable clone may resume under the original wrapping key. |
+| Upstream secret | Change or revoke the credential at its actual issuer, update the stored value with CAS, and verify the consumer. Rewriting a vault value or rotating a vault key does not revoke an API key at its provider. |
+
+An older backup can contain older upstream credentials and revisions. Recovery must reconcile them with current issuers and retained external evidence; restoring storage cannot establish that those credentials are still valid or safe.
+
+## Audit evidence and external collection
+
+- Local required audit persistence fails closed before plaintext release or mutation success. Export uses a **separate, vault-wide, expiring audit-reader credential** with no secret or token-administration authority. Ordinary OR3 service tokens never receive audit access; the collector does not receive the master key.
+- The feed has fixed page/event bounds, sequence cursors, and a fixed head captured before recording access. Each successful page has a durable access event. A collection session drains only that head, then waits at least 30 seconds before taking another; server limits bound polling. Subsequent access events intentionally appear in later sessions rather than causing endless immediate self-draining.
+- An external collector durably stores events before advancing its cursor and independently retains vault ID, sequence, and head-MAC checkpoints. Retries must not lose events. Its storage and checkpoints need custody the vault service cannot rewrite, plus protected transport and restricted read access. A local MAC chain alone cannot detect removal of a valid suffix or an entire rollback.
+- Define collection cadence, maximum export lag, retention, clock-sync tolerance, capacity alarms, and response ownership in the deployment record. Use synchronized UTC for timestamps and sequence for ordering; sequence is not proof of clock accuracy. Expose bounded health/capacity/sequence signals without secret-bearing diagnostics. Collection failure must be visible and acted on, not described as successful delivery.
+- Qualify complete event coverage across vault, collector, and host/session logs, including administrative access, invalid access, and access to audit records. Bounded failure counters do not establish individual event capture where that is required. Keep collectors, infrastructure scanning, alert evaluation, and incident handling outside the vault core.
+
+## Capacity and recovery qualification
+
+The initial proposal is **at most 1 GiB (1,073,741,824 bytes) of SQLite snapshot input** to backup encryption, including audit history; secret values remain encrypted inside that snapshot. This is a provisional product ceiling, not evidence of sufficient capacity or recovery speed.
+
+- Bound the encrypted input by that ceiling plus the exact fixed overhead of the supported format. Enforce declared and observed lengths, authentication, and end of input. Reject oversized, truncated, or trailing data before a destination becomes usable; never parse unauthenticated backup content as SQLite.
+- Check disk headroom for source, journal, private staging, and destination, and preserve the source if space or I/O fails. Include temporary-space peaks in qualification. The cryptographic maximum for one GCM invocation is much larger and is not a sensible operational limit. [NIST SP 800-38D, section 5.2.1.1](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38d.pdf).
+- Before qualification, record numeric budgets for startup verification time, steady-load read latency, memory, backup/rekey downtime, recovery point objective (RPO), recovery time objective (RTO), and disk headroom on named target hardware. Unset budgets do not count as passing targets.
+- Exercise an aged fixture containing the declared secret count, realistic value sizes, repeated changes/tombstones, and the projected audit volume, plus a fixture at the snapshot ceiling. Record measured outcomes against every budget. Account for audit growth caused by reads, collection, and failed requests, not only secret count.
+- Test interrupted maintenance, missing/wrong recovery keys, authenticated old snapshots, fresh-key restoration, token reissuance, and consumer reconnection. Compare restored state to independent checkpoints and reconcile issuer-side credentials.
+- Plan capacity runway and maintenance before the ceiling is reached. No silent audit pruning, unbounded backup size, or claimed indefinite retention is permitted. If the aged fixture cannot meet the budgets, revise the supported capacity or maintenance design before release.
+
+## Control responsibility matrix
+
+These are planned contributions, not complete framework mappings or assessment results. Applicability and inherited controls must be documented for each deployment.
+
+| Reference | Planned vault contribution | Operator / external responsibility |
+| --- | --- | --- |
+| [PCI DSS v4.0.1](https://www.pcisecuritystandards.org/document_library/), requirements 3, 4, 7, 8, 10 | Protected values/keys, scoped deny-by-default authority, credential lifecycle, access evidence. A vault that can affect cardholder-data security may be in scope. | Scope assessment, secure network boundaries, MFA at applicable human-access boundaries including non-admin CDE access, key custody, approved access, log review and complete event coverage. When applicable: at least 12 months of logs, three months immediately available. Automated account access and human access have different MFA applicability. |
+| [SOC 2 Trust Services Criteria](https://www.aicpa-cima.com/resources/download/2017-trust-services-criteria-with-revised-points-of-focus-2022), CC6.7, CC6.8, CC7.1-CC7.3 | Restrict/protect information movement (CC6.7); minimize executable surface and supply useful audit/health evidence. | Unauthorized/malicious software controls (CC6.8); configuration/new-vulnerability detection (CC7.1); anomaly analysis (CC7.2); incident evaluation/response (CC7.3). These criteria do not require a Kubernetes scanner inside the vault. |
+| [NIST SP 800-53 Rev. 5](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final), IA-5, AC-6, SC-28(1), SC-12, SC-13, AU family | Authenticator lifecycle, least privilege, encrypted storage, key management, cryptographic boundaries, audit records. | Select applicable controls/enhancements and parameters, required crypto assurance, identity lifecycle, audit retention/review, and assessment evidence. This is a control catalog, not a product certification. |
+| [GDPR Article 32](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng) | Encryption/access controls and verifiable restore support. | Risk-appropriate technical/organizational measures, availability/resilience, regular evaluation, recovery targets, lawful metadata/log retention and deletion, and controller/processor responsibilities. Encryption alone does not establish compliance. |
+| [HIPAA 45 CFR 164.312](https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-164/subpart-C/section-164.312) | Access restriction, authentication, integrity, audit and recovery support; encrypt secrets regardless of minimum applicability. | Covered-entity/business-associate scope, risk analysis, attributable access, emergency procedures and agreements. Current encryption specifications are addressable, not optional; required safeguards still apply. [HHS guidance](https://www.hhs.gov/hipaa/for-professionals/security/laws-regulations/index.html) explains this; [proposed changes](https://www.hhs.gov/hipaa/for-professionals/security/hipaa-security-rule-nprm/index.html) are not the current rule. |
+
+Recheck primary standards and legal status when a deployment is qualified. Keep one redacted evidence record identifying configuration, test results, inherited-control owners, unresolved findings, independent review scope, and the decision to permit use. Until that evidence exists, every gate above remains pending.
