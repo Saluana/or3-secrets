@@ -1,6 +1,6 @@
 # Planned production security profile
 
-**Status: implementation internally qualified; production acceptance pending.** The [implementation receipt](../../docs/implementation-receipt.md) records executed product tests, distinct Linux identities, ENOSPC, packaging and exact-limit recovery. This profile describes deployment gates: target operational evidence, independent review and any compliance assessment remain pending. It grants no certification and makes no PCI DSS, SOC 2, NIST, GDPR, HIPAA, or FIPS compliance claim. Read with [requirements](requirements.md), [design](design.md), and [tasks](tasks.md).
+**Status: implementation and disposable local qualification complete; production acceptance pending.** The [local qualification record](../../docs/local-qualification.md) maps the remaining tasks to executable evidence, measured mixed-inventory capacity budgets and separate control owners. The [original implementation receipt](../../docs/implementation-receipt.md) remains historical. This profile describes deployment gates: target operational evidence, independent review and any compliance assessment remain pending. It grants no certification and makes no PCI DSS, SOC 2, NIST, GDPR, HIPAA, or FIPS compliance claim. Read with [requirements](requirements.md), [design](design.md), and [tasks](tasks.md).
 
 ## Assurance decision before runtime commitment
 

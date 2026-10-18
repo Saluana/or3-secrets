@@ -31,7 +31,8 @@
     "bin",
     "README.md",
     "docs",
-    "planning/secure-secret-store"
+    "planning/secure-secret-store",
+    "host-compatibility.json"
   ],
   "scripts": {
     "test": "bun test --timeout 30000 tests",

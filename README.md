@@ -2,7 +2,7 @@
 
 A small Bun service, CLI, Node client, and optional OR3 Nuxt provider. One Unix socket and one private SQLite database; encrypted secret values, scoped expiring tokens, compare-and-set revisions, required authenticated audit, and fresh-key recovery.
 
-**Development implementation, unpublished (`0.0.0`).** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](docs/qualification.md), and the [production control gates](planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
+**Development implementation, unpublished (`0.0.0`).** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](docs/qualification.md), [Linux core measurements](docs/linux-qualification.md), and the [production control gates](planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
 
 ```sh
 # Use exactly Bun 1.3.14 on PATH; do not upgrade another project's global runtime.
@@ -14,13 +14,15 @@ bun test --timeout 30000 tests
 
 The CLI launcher uses Bun with automatic `.env` loading disabled. `serve` never initializes storage. Initialization creates a random 32-byte master key outside the vault directory and a separate operator credential, both exclusively as `0600` files in `0700` directories. It prints an identity/checkpoint receipt, never the credentials. Supported platforms are macOS development and separately qualified Linux; Windows and network filesystems are unsupported.
 
-Read [operations](docs/operations.md) for complete commands, backup/recovery, audit collection, private files, service identities, and rotation. Read [security and API](docs/security.md) for formats and limits. The [upstream source analysis](planning/secure-secret-store/source-analysis.md) explains the selected ideas from secretctl and Dopbase; no upstream source was copied.
+Read [operations](docs/operations.md) for complete commands, backup/recovery, audit collection, private files, service identities, and rotation. The [local qualification record](docs/local-qualification.md) maps the completed checklist to repeatable evidence and separates production acceptance. Read [security and API](docs/security.md) for formats and limits. The [upstream source analysis](planning/secure-secret-store/source-analysis.md) explains the selected ideas from secretctl and Dopbase; no upstream source was copied.
 
 Start with `or3-secrets --help`. Every command has its own required options, example and safety notes: `or3-secrets put --help`, `or3-secrets help token issue`, or `or3-secrets restore -h`. Missing options are listed together before any operation. Terminals show readable errors and formatted metadata; redirected output remains JSON, with `{error:{code,message,hint}}` on stderr. `get --stdout` always preserves the exact secret bytes. Existing output paths are refused as `output_exists` (exit 64); choose a new path rather than overwriting one.
 
 Ctrl-C or SIGTERM stops the foreground service gracefully; successful cleanup exits 0 and removes the socket.
 
-The [internal security review](docs/security-review.md) records the replay, filesystem, redirect and admission fixes and their regression evidence. Earlier development vaults without the new audit state evidence are refused; create a fresh disposable vault rather than reusing or overwriting those fixtures.
+The [internal security review](docs/security-review.md) records the replay, filesystem, redirect and admission fixes and their regression evidence. The [subsequent review remediation](docs/review-remediation.md) tracks the index, custody, admission, recovery and qualification fixes, including outstanding publication and runtime-stack gates. Earlier development vaults without the new audit state evidence are refused; create a fresh disposable vault rather than reusing or overwriting those fixtures.
+
+Successful secret mutations now bind the complete authenticated row into their audit event. This also rejects a valid same-revision row from a different database branch, even when the original branch's retained receipt still matches. Unpublished fixtures with secret mutations lacking `detail.recordMac` fail closed; preserve their files and keys for separately reviewed recovery. Update the service and audit-export client together because strict older audit clients reject the new event field. The OR3 secret-operation API is unchanged.
 
 ## Node client
 
@@ -30,6 +32,7 @@ const store = createClient({
   socketPath: '/run/or3-secrets/api.sock',
   tokenFile: '/run/or3/credentials/secrets.token',
   vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID',
+  serviceUid: 1000, // Explicit UID of the separately provisioned vault service.
 });
 const scope = { namespace: 'deployment', ownerUserId: 'internal-user', workspaceId: 'workspace', consumerId: 'plugin' };
 await store.put({ scope, name: 'api', value: valueFromProtectedInput, expectedRevision: 0 });
@@ -48,12 +51,12 @@ export default defineNuxtConfig({
     provider: 'or3-secrets', namespace: 'deployment',
     socketPath: '/run/or3-secrets/api.sock',
     tokenFile: '/run/or3/credentials/secrets.token',
-    vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID',
+    vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID', serviceUid: 1000,
   } },
 });
 ```
 
-Nuxt runtime overrides are `NUXT_SECRETS_PROVIDER`, `NUXT_SECRETS_NAMESPACE`, `NUXT_SECRETS_SOCKET_PATH`, `NUXT_SECRETS_TOKEN_FILE`, and `NUXT_SECRETS_VAULT_ID`. They contain paths/identity, **not bearer token contents or the master key**. No secret paths enter public runtime config. The module is skipped for static generation and `ssr: false`.
+Nuxt runtime overrides are `NUXT_SECRETS_PROVIDER`, `NUXT_SECRETS_NAMESPACE`, `NUXT_SECRETS_SOCKET_PATH`, `NUXT_SECRETS_TOKEN_FILE`, `NUXT_SECRETS_VAULT_ID`, and `NUXT_SECRETS_SERVICE_UID`. They contain paths/identity, **not bearer token contents or the master key**. No secret paths enter public runtime config. The module is skipped for static generation and `ssr: false`.
 
 The initial consumer is remembered `host.secrets` in reviewed, package-backed trusted plugins. OR3 derives owner/workspace/plugin from its authenticated session and live sealed activation, rechecks grants, and correlates acting identity separately. `secrets.read` allows trusted plugin code to receive plaintext. Explicit session values remain activation memory; default/remember values use the selected service. Selected provider failures and unsupported activations fail closed. No existing localStorage, Dexie, connection, webhook, Connect, or background-job credentials are migrated. Old remembered values require explicit re-entry. An unselected provider preserves existing deployment behavior.
 
@@ -62,3 +65,13 @@ Secret-bearing browser requests refuse redirects. The OR3 route admits at most 6
 ## Scope
 
 No TCP API, dashboard, identity service, MCP, command runner, offline cache, dynamic credentials, automatic migration, replication, or audit pruning. Encryption does not protect a compromised service identity, kernel, root, OR3 principal, or a plugin already authorized to read a value. Metadata in the live database is authenticated, not encrypted. Whole snapshots require independent encryption/custody.
+
+## Reviewed safety boundaries
+
+The compatible host commit is pinned in [host-compatibility.json](host-compatibility.json); earlier hosts lack the registry and authenticated secret route. This integration requires that commit or a descendant containing it.
+
+Socket clients bind to `serviceUid` (default: the client's own UID); separate service identities require an explicit expected UID and a correctly provisioned service-owned run directory. Every operation rechecks the socket before reading/sending its private credential.
+
+Startup and maintenance run full SQLite index/table integrity checks in addition to authenticated state reconciliation. Invalid credentials and vault IDs are refused before request bodies occupy the authenticated 16-request budget; authentication and authorization repeat in the operation transaction. Audit-reader credentials share a five-per-second budget across every audit-producing operation, including status and denials.
+
+Backup outputs belong outside the source vault. Recovery keys and operator credentials belong outside both managed vaults. Raw backup staging stays on live custody storage; only encrypted bytes are written to the backup medium. Ordinary operations stop at the 960 MiB high-water mark, with an additional 1 MiB admission margin and 64 MiB below the backup ceiling reserved for recovery growth. Offline row-wise rekey can rotate an oversized source without the backup envelope limit and compacts unused/trailing pages. It never drops audit history; an oversized recovered inventory remains blocked for live service and requires an explicit capacity review.

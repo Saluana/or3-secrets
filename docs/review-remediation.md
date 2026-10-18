@@ -1,0 +1,54 @@
+# Review remediation, 2026-10-18
+
+This follows the external review of `c31eacdaa115c4e6541a3f20fb5d552824c2e40e`. It keeps the existing small service, CLI, Node client and Nuxt adapter. No production credentials were used. Historical receipts describe earlier inputs; current machine receipts identify the tested source, lockfile, artifact and companion host.
+
+| Review item | Change and primary evidence |
+| --- | --- |
+| 1. SQLite indexes | Full `integrity_check(1)` before admission; returned scope/name/reference crosschecks. Binary secondary-index corruption is refused by serve, verification, backup and rekey. |
+| 2. Maintenance paths | Artifacts must be outside managed source/destination vaults. Sidecar-name regressions refuse creation; a safe backup survives source use. |
+| 3. Socket identity | Expected service UID checked before sending credentials; CLI, Node and private Nuxt configuration expose it. Distinct Linux identities prove zero requests reach the foreign leaf/socket. |
+| 4. Slow bodies | Bounded preauthentication precedes the 16-body budget. Transactional authentication/authorization remains authoritative. Real incomplete HTTP requests cover invalid tokens, wrong vault, saturation and deadline. |
+| 5. Reader amplification | Every reader operation shares five admissions/second, including status and denials. State is bounded to 1,024 reader entries; refusals use coalesced telemetry without durable audit writes. |
+| 6. Exact input | Fatal UTF-8 decoding preserves the BOM. Actual CLI roundtrips cover leading, embedded and BOM-only values and newlines. |
+| 7. Capacity | Ordinary work stops below 960 MiB with 1 MiB operation margin and 64 MiB reserve below the backup ceiling. Row-wise rekey has no envelope cutoff; headroom uses logical pages. Exact admission-boundary and oversized sparse-source recovery pass. Real retained history is preserved and may still require a reviewed capacity change. |
+| 8. Backup staging | Raw SQLite snapshot staging remains within live vault custody. Interrupted backup proves the backup medium receives no raw metadata snapshot. |
+| 9. Companion host | Host integration is committed locally as `caf20a8d61d3963d8268a80af02fcc1536f24a3d` and pinned in `host-compatibility.json`. Registry qualification reads committed bytes; full browser qualification requires that clean HEAD. Remote availability remains pending publication authorization. |
+| 10. Ambient configuration | Provider qualification removes application overrides, checks fixture identity and poisons inputs with a second synthetic vault, which must receive zero calls. |
+| 11. Disk-full safety | Dedicated Linux tmpfs, mount type, non-root UID, capacity and strict write bound checked before fixture creation. Ordinary storage is refused; 8 MiB ENOSPC/recovery passes. |
+| 12. Promise failures | Operation validation/filesystem failures reject promises, including revoke input. Configuration errors remain synchronous. |
+| 13. Audit output | Private file reservation precedes the request. Existing-output refusal consumes no audit event or reader capture. |
+| 14. Outage proof | One prepared read succeeds, returns exactly `503 unavailable` during outage and succeeds after restart. |
+| 15. Interruption | Twelve external init/restore/rekey stages establish incomplete refusal, completed key/token usability, source preservation and safe fresh-path retry. Process interruption does not establish power-loss durability. |
+| 16. Mixed workload | Explicit startup, RSS, latency and recovery budgets precede the 2,000-secret mixed profile; recovered destinations remain supported. |
+| 17. Reproducibility | Read-only CI, immutable host/action/image pins, clean/dirty provenance, lock/package hashes, SBOM, full-source secret scan and runtime/OS reports added. Remote CI has not run; runtime production acceptance remains open below. |
+| 18. Readability | Expanded authentication, transactions, recovery and cleanup sequencing in existing modules; no runtime dependency or new product subsystem. |
+
+## Verification
+
+The core suite contains **25 tests, 356 assertions** covering macOS arm64 and Linux arm64. Build and strict TypeScript checks pass. Relevant host scope/activation/provider/authentication tests pass: **77 tests across 10 files**, with host type and documentation checks passing. Host integration was copied into a separate clean worktree; unrelated changes in the developer checkout were preserved.
+
+Eight regression scenarios were first run against the pre-fix owners and failed for the intended reasons: BOM loss, audit output ordering, unauthenticated body admission, corrupted indexes, sidecar outputs, reader write amplification, socket UID trust and live-capacity admission.
+
+Final review also reproduced a new admission-ordering failure: loss of the database path returned `503` without stopping service. Filesystem and preauthentication storage failures now remain within the fail-stop boundary; a real-process regression proves exit, socket removal and successful source recovery.
+
+The mixed profile on macOS arm64 measured 105 ms startup, 137,969,664 bytes steady-state service RSS, 1 ms HTTP read p95, 147 ms backup, 261 ms restore and 252 ms rekey. Its database was 4,771,840 bytes; recovered copies were 4,395,008 bytes. These small-workload measurements are separate from boundary regressions and do not replace a deployment capacity assessment.
+
+Reproduce commands in [qualification](qualification.md). Current package/provider/browser receipts retain exact source/host identities and the artifact SHA-256 under ignored `test-results/`. Browser qualification remains a development-server check, not production acceptance. CI artifacts will become independently retrievable only after both reviewed branches are published and the workflow succeeds.
+
+## Subsequent package bug hunt
+
+One additional high-impact integrity defect was reproduced against `a80528b84ea588fd89954e6b78b3a35a1c678a15`: the mutation history bound a secret's revision/state but not its contents. Two legitimate branches of the same database/key lineage could produce different authenticated revision-2 rows. Substituting the foreign row into the original database passed `audit verify --receipt-file` (exit 0) while retaining the original audit chain and receipt. This requires offline database substitution and an alternative row produced by legitimate writes after snapshot reuse; it requires no master-key knowledge. It is stronger than a consistent whole-database rollback because the original independently retained receipt still matched.
+
+Successful put/delete events now include the complete row's keyed `detail.recordMac`; verification requires the latest binding to match the current row. Fresh-key restore/rekey translates each current revision's binding while rebuilding the chain and retains the original source receipt in its recovery event. Source files are preserved. Existing unpublished secret histories without bindings fail closed; preserve any needed fixture and key for separately reviewed recovery. Strict older audit clients need the matching package update. The OR3 secret-operation contract is unchanged; its public host documentation must carry the same fixture/audit-client compatibility note when integration is coordinated.
+
+The new real-service/CLI fork regression failed before repair and passes after it; sanitized before/after artifacts are `test-results/fork-replay-before.xml`, `bug-hunt-tests.xml` and `bug-hunt-tests-linux.xml`. Final core results are **26 tests / 367 assertions** on macOS arm64 and non-root Linux arm64. Build and strict types pass. The existing recovery scenario additionally mutates a rekeyed secret and verifies a second fresh-key recovery. All twelve interruption stages, bounded 8 MiB Linux ENOSPC/recovery and the mixed profile pass. Native mixed-profile measurements: 108 ms startup, 138,248,192 bytes service RSS, 1 ms read p95, 148 ms backup, 246 ms restore and 242 ms rekey. The database was 5,058,560 bytes and both recovered copies were 4,681,728 bytes. `test-results/bug-hunt-receipt.json` records hashes and provenance. No runtime, dependency, production credential or deployment was changed, and this run does not close the gates below.
+
+## Runtime and deployment gates remain open
+
+The npm dependency advisory query returned no findings and the full-source secret scan passed. The additional **OS package scan did find vulnerabilities** in the pinned Debian 13.4 qualification image: 3 critical, 97 high, 139 medium, 108 low and 3 unknown package/advisory matches. These are scanner matches, including repeated advisories across binary packages, not 350 independently demonstrated exploit paths. Exact installed/fixed versions and database timestamps are in `test-results/runtime-image-scan.json`. Do not promote that image as a production image. Rebuild a patched deployment stack, review remaining applicability and repeat qualification before production acceptance; no finding is silently waived by a green source test.
+
+Measured runtimes are Bun 1.3.14 and actual Node 24.13.0 with OpenSSL 3.5.4 on 64-bit arm64. The SQLite engine reported by `bun:sqlite` differs: 3.54.0 on this macOS host and 3.53.0 in the pinned Linux image. The OS image's SQLite/OpenSSL packages and Node's embedded SQLite are separate components. Trivy's OS scan is not complete coverage of embedded runtime copies.
+
+The [SQLite CVE inventory](https://www.sqlite.org/cves.html) puts the 2026 FTS5 fixes in 3.53.2: the measured Linux 3.53.0 predates them. Upstream describes arbitrary SQL, FTS5 and disabled defensive mode as preconditions. This service exposes no arbitrary SQL and allowlists its schema; that limits the demonstrated path but does not establish a patched runtime. SQLite's [3.54.1 announcement](https://www.sqlite.org/news.html) describes its 3.54.0 heap overflow as affecting 32-bit builds; the measured macOS arm64 profile is 64-bit. [Bun 1.4 release notes](https://bun.com/blog/bun-v1.4) describe later security changes, so absence of published repository advisories is insufficient assurance for 1.3.14. Node 24.13.0 is an older qualification baseline; the [Node security announcement](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases) schedules further high-severity fixes for October 21. Current runtime upgrade and advisory acceptance must be completed for the actual deployment. Global developer runtimes were not changed.
+
+Remote source publication and CI execution are pending explicit authorization after automatic approval review rejected the branch push. No package, release tag or deployment was published. Independent security review, storage power-loss testing, key/backup custody, MFA/named administrators, external audit retention and deployment RPO/RTO remain required as already recorded in [assurance](assurance.md) and the security profile.

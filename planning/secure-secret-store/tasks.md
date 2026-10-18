@@ -1,6 +1,6 @@
 # Tasks
 
-Code implementation is complete; internal qualification results and remaining external/deployment gates are recorded in [the implementation receipt](../../docs/implementation-receipt.md). These are dependency-ordered work units, not delivery-time commitments. Write the relevant failing checks **before** production code. Use the design's fixed scope and remove speculative abstractions in every implementation pass. The [production security profile](security-profile.md) records inherited controls and assurance gates; external review and deployment evidence are not implied by completing code.
+Code implementation and disposable local qualification are complete. The user-approved scope is local qualification, with production acceptance kept separate. Current evidence and control owners are mapped in [the local qualification record](../../docs/local-qualification.md); [the original implementation receipt](../../docs/implementation-receipt.md) remains historical. Checkmarks below cover repository implementation and local qualification; unperformed production/release criteria remain unchecked in their separate gate list. These are dependency-ordered work units, not delivery-time commitments. Write the relevant failing checks **before** production code. Use the design's fixed scope and remove speculative abstractions in every implementation pass. The [production security profile](security-profile.md) records inherited controls and assurance gates; external review and deployment evidence are not implied by completing code.
 
 Completed preparation: initialized this repository on `main`, inspected OR3's current stores/provider/activation boundaries, and reviewed the two upstream projects at pinned commits. No existing credentials or deployments were changed. The implementation extends the identified OR3 host boundaries; unrelated image changes are preserved.
 
@@ -72,7 +72,7 @@ Completed preparation: initialized this repository on `main`, inspected OR3's cu
   - Reuse task 11's verified fresh-key copy for a stopped source vault, without a second encryption/copy implementation. Re-authenticate records/header/history, link receipts, count actual destination wraps, and replace operator/service/audit authority. Do not reset a populated destination's wrapping count to zero.
   - **Done when:** source and destination independently verify with their own keys, old tokens fail at the destination, new tokens resolve the original synthetic data, interrupted output never replaces the source, and documentation distinguishes custody rekey from issuer-side credential revocation.
 
-- [ ] **13. Qualify core recovery, audit growth, and resource limits on Linux.** Depends on: 12. Requirements: R1, R2, R4, R5, R6, R8, R11, R12.
+- [x] **13. Qualify core recovery, audit growth, and resource limits on Linux.** Depends on: 12. Requirements: R1, R2, R4, R5, R6, R8, R11, R12.
   - Run the previously authored crash and actual filesystem write-failure scenarios in disposable Linux storage; add no test-only failure flags to production code. Record effective journal/locking/EXTRA modes and file/directory sync behavior. Distinguish process-crash evidence from any separately performed power-loss durability check.
   - Verify separate effective OR3/service identities and socket permissions without database/key access. Exercise bounded failed-access evidence, collector interruption/recovery and lag/drop alerts, time assumptions, and disk thresholds using existing operational tooling.
   - Record numeric resource and recovery budgets before qualification. Measure idle RSS, startup, and latency for the small workload, then verification/startup/backup/restore/rekey costs and disk growth for aged audit fixtures through the supported maximum snapshot size. Include maintenance headroom and oversize refusal; qualify the supported operating volume against those budgets and revise the declared envelope if measurements fail, without adding caching or automatic pruning.
@@ -98,33 +98,45 @@ Completed preparation: initialized this repository on `main`, inspected OR3's cu
   - Extend the internal store seam to awaited operations without changing the already-async SDK shape. Preserve grant separation, real revisions, one-attempt CAS writes, and explicit session memory.
   - **Done when:** remembered values roundtrip via the service without localStorage copies; session values vanish on teardown; stale responses never reach a new context; a selected failed provider never falls back to old storage.
 
-- [ ] **18. Qualify OR3 integration and unchanged credential boundaries.** Depends on: 17. Requirements: R6, R9, R10, R11, R12.
+- [x] **18. Qualify OR3 integration and unchanged credential boundaries.** Depends on: 17. Requirements: R6, R9, R10, R11, R12.
   - Run the real package-backed activation scenarios against a disposable OR3 instance. Inspect generated server/public config and browser bundles for service credentials/Bun-only server imports.
   - Check that disabling selection retains existing deployment behavior and that enabling it does not upload/delete localStorage/Dexie keys or change connection, webhook, Connect, or background-job persistence.
   - **Done when:** the repeatable OR3 artifact demonstrates scope/grant/lifecycle checks, host-to-vault actor/request correlation, private runtime boundaries, wrong-vault protection, fail-closed outages, and no implicit migration. Its claim is remembered trusted-plugin secrets, not all OR3 credential storage.
 
-- [ ] **19. Write and exercise the production profile and operator documentation.** Depends on: 12, 18. Requirements: R6, R7, R8, R9, R10, R11, R12.
+- [x] **19. Write and exercise the production profile and operator documentation.** Depends on: 12, 18. Requirements: R6, R7, R8, R9, R10, R11, R12.
   - Update README, threat model, supported platforms/runtime/assurance target, API/CLI examples, separate identities and socket ownership, crash-left sockets, and the production security profile. Explain that the operator credential can mint secret-use authority and that a local key file or encrypted values do not make metadata or whole-host snapshots confidential.
   - Document named administrators, inherited MFA and alternate/break-glass paths, actor correlation, token renewal, separately controlled key backups, online audit export/checkpoints, collector lag/drop/time/disk alerts, retention/deletion, and measured maintenance/recovery objectives. Keep monitoring and human identity controls in existing deployment tooling.
   - Separate service-token rotation, master-key rekey, and upstream credential revocation/rotation. Walk through fresh-key restore, old-value reconciliation, retained backup keys, and recovery after interrupted maintenance without exposing real credentials.
   - Update `or3-chat/public/_documentation/` through `docmap.json`, the trusted-plugin secrets documentation, cloud provider setup, and provider README. State that old remembered secrets require explicit re-entry and `secrets.read` can return plaintext to a trusted plugin.
   - **Done when:** a clean disposable operator walkthrough works using only docs, including expiry/replacement, audit export, and recovery; no example puts raw credentials in argv/env/echoing TTY input; deployment control owners and evidence gaps are explicit; readiness claims match evidence.
 
-- [ ] **20. Perform final security review, simplification, and release qualification.** Depends on: 19. Requirements: R1–R12.
+- [x] **20. Perform final security review, simplification, and release qualification.** Depends on: 19. Requirements: R1–R12.
   - Inspect final diffs across both repositories and all package contents; remove needless options, indirection, test-only seams, unused APIs, and dependencies. Review each trusted boundary against the original failure catalog.
   - Run relevant security E2E suites and typechecks once, build/package the CLI/client/module, and qualify the clean tarball with the selected exact runtime. Re-run only checks affected by corrections. Record the SBOM, pinned build/dependency inputs, secret/dependency scans, assessed findings, package contents, and artifact checksums/provenance; review workflow permissions and signing/verification steps.
   - Before high-value or regulated use, obtain independent application-security and cryptographic design/implementation review of the qualified release and deployment/recovery boundary; resolve and recheck required findings. Record scope, reviewer, version, and residual decisions. Internal review, tests, and upstream audits do not satisfy this gate.
   - Record full commands, actual results, commit/version/platform, remaining issues, control evidence, and the redacted receipt. Publication/deployment and real credential migration are separate work; do not consume an immutable version merely to run qualification.
   - **Done when:** applicable release criteria have evidence, deterministic failures are resolved, artifacts contain no real secrets/developer state, and pending external/deployment gates remain explicitly blocked. Block any real credential use if recovery/security checks fail, and block high-value/regulated use until the independent-review and required deployment gates pass.
 
-## Qualification status after implementation
+## Local qualification completion
 
-Tasks 1–12 and 14–17 have product implementations and executable evidence in the receipt. The remaining unchecked tasks contain broader gates, not missing API/CLI/provider code:
+Tasks 1–20 are complete within the agreed disposable local scope. Their production/external criteria are retained below rather than inferred from local evidence. Reproduce results with [qualification](../../docs/qualification.md) and the read-only qualification workflow.
 
-- **13:** Linux security, ENOSPC, distinct identities and exact 1 GiB audit-history recovery pass. Target-host numeric budgets, mixed-secret aged workload and storage/power-loss acceptance remain unperformed.
-- **18:** Actual packaged Nuxt/Nitro provider, private bundle scan, Node/service outage, and 129 tests across ten affected OR3 suites pass. The repeatable full-app browser/package/session walkthrough now passes through real upload/review/canary/promotion and Chat activation, including persistence, session cleanup, workspace/grant fencing and live vault restart. See `scripts/qualify-host.ts` and ignored `test-results/host-browser.json`; production deployment acceptance remains separate.
-- **19:** Operator/provider/public docs are written and CLI/recovery commands exercised with disposable fixtures. Production human administration/MFA, external collector/alerts, retention and separately controlled recovery custody are not evidenced.
-- **20:** Internal review/simplification, builds/typechecks, clean tarball, SBOM/advisory/material scans and local artifact provenance pass. Independent security/crypto review, release signing and target deployment acceptance remain external gates. No publication is authorized by these checkmarks.
+- **13:** Linux security, process interruptions, real ENOSPC, distinct identities, mixed workload and exact 1 GiB mixed-inventory recovery pass with predefined time/memory budgets. No TCP/UDP service sockets are permitted. The capacity receipt distinguishes successful offline recovery from refused live admission above the operating reserve.
+- **18:** The packaged Node/Nuxt provider and real browser upload/review/canary/promotion/Chat workflow check scope, grants, context changes, outage/restart, wrong vault, private boundaries and host/vault audit correlation. Browser checks preserve actual localStorage/Dexie credentials and verify disabled selection uses existing device behavior; existing host suites cover the unchanged credential owners.
+- **19:** The packaged CLI operator walkthrough checks exact bytes/private outputs, expiry, atomic token-file replacement/revocation, independently retained collector progress, checkpoint verification and fresh-key recovery. Public/provider/operator docs describe the verified scope and name the remaining operational responsibilities.
+- **20:** Final internal diff/content review, strict types, security regressions, build, clean tarball, SBOM/scans and local provenance are retained as repeatable receipts. Ordinary qualification pushes publish nothing. Independent review and target deployment acceptance are separate.
+
+## Separate production and release gates
+
+These are deliberately unperformed under the approved local-only scope. The deployment/release owner must assign actual people and a target host; role assignments and required evidence are detailed in [the local qualification record](../../docs/local-qualification.md) and [security profile](security-profile.md).
+
+- [ ] Resolve or explicitly assess material runtime/embedded SQLite/OS findings for the exact production stack; the test image is not production approved.
+- [ ] Demonstrate named administrators, inherited MFA and tested alternate/break-glass access.
+- [ ] Operate independently retained audit collection/checkpoints and exercise lag/drop/progress, clock, disk and retention alerts/access policy.
+- [ ] Demonstrate target-host service/OR3 isolation and separately controlled recovery-key/backup custody.
+- [ ] Qualify target filesystem/power loss, capacity/headroom, accepted RPO/RTO and recovery reconciliation. Process kills and ENOSPC do not establish these.
+- [ ] Obtain independent application-security and cryptographic review of the exact release and deployment/recovery boundary before high-value or regulated use; resolve/recheck required findings.
+- [ ] When publication is authorized, qualify the unused release version and signed artifact provenance/verification separately from local checksums and CI success.
 
 ## Traceability matrix
 

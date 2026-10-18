@@ -1,0 +1,14 @@
+{
+  "profile": "linux-small-disposable-v1",
+  "selectedBeforeMeasurements": "2026-10-18",
+  "small": {
+    "secrets": 100,
+    "samplesPerOperation": 200,
+    "startupMs": 2000,
+    "p95Ms": 50,
+    "idleRssBytes": 134217728
+  },
+  "monitoring": {
+    "clockOffsetMs": 1000
+  }
+}

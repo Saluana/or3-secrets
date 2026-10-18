@@ -12,15 +12,20 @@ export function cli(args: string[], input?: string | Buffer) {
   return spawnSync(process.execPath, ['--no-env-file', 'src/cli.ts', ...args], { cwd: project, input, encoding: 'utf8', timeout: 15000 });
 }
 export class Fixture {
-  root = mkdtempSync(process.platform === 'darwin' ? '/private/tmp/ors-' : '/tmp/ors-');
-  vault = join(this.root, 'vault');
-  key = join(this.root, 'master.key');
-  operatorFile = join(this.root, 'operator.token');
-  socket = join(this.root, 'run', 'api.sock');
+  root: string;
+  vault: string;
+  key: string;
+  operatorFile: string;
+  socket: string;
   vaultId = '';
   child?: ChildProcess;
   logs = '';
-  constructor() {
+  constructor(parent = process.platform === 'darwin' ? '/private/tmp' : '/tmp') {
+    this.root = mkdtempSync(join(parent, 'ors-'));
+    this.vault = join(this.root, 'vault');
+    this.key = join(this.root, 'master.key');
+    this.operatorFile = join(this.root, 'operator.token');
+    this.socket = join(this.root, 'run', 'api.sock');
     mkdirSync(join(this.root, 'run'), { mode: 0o700 });
     const result = cli(['init', '--vault-dir', this.vault, '--key-file', this.key, '--operator-file', this.operatorFile]);
     expect(result.status, result.stderr).toBe(0);
