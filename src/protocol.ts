@@ -2,6 +2,8 @@ export const PROTOCOL_VERSION = 1;
 export const MAX_BODY = 256 * 1024;
 export const MAX_VALUE = 32 * 1024;
 export const MAX_SNAPSHOT = 2 ** 30;
+// Preserve 64 MiB below the backup ceiling for recovery construction and audit.
+export const MAX_LIVE = MAX_SNAPSHOT - 64 * 1024 ** 2;
 export const MAX_WRAPS = 1_000_000;
 export const MAX_REVISION = Number.MAX_SAFE_INTEGER - 1;
 export type Scope = Readonly<{ namespace: string; ownerUserId: string; workspaceId: string; consumerId: string }>;
@@ -147,7 +149,8 @@ export function parseResponse(operation: Operation, value: unknown): unknown {
     const r = object(value, ['vaultId', 'protocolVersion', 'expiresAt', 'auditSeq', 'storage']);
     if (typeof r.vaultId !== 'string' || !/^[a-f0-9]{32}$/.test(r.vaultId) || r.protocolVersion !== 1) fail('invalid_response', 503);
     integer(r.auditSeq, 1); if (r.expiresAt !== null) integer(r.expiresAt);
-    const storage = object(r.storage, ['databaseBytes', 'maxSnapshotBytes', 'journalMode', 'lockingMode', 'synchronous', 'wrapCount', 'maxWraps']);
+    const storage = object(r.storage, ['databaseBytes', 'maxLiveBytes', 'maxSnapshotBytes', 'journalMode', 'lockingMode', 'synchronous', 'wrapCount', 'maxWraps']);
+    if (storage.maxLiveBytes !== MAX_LIVE) fail('invalid_response', 503);
     if (storage.journalMode !== 'delete' || storage.lockingMode !== 'exclusive' || storage.synchronous !== 'extra' || storage.maxWraps !== MAX_WRAPS) fail('invalid_response', 503);
     integer(storage.wrapCount, 0, MAX_WRAPS); integer(storage.databaseBytes); if (storage.maxSnapshotBytes !== MAX_SNAPSHOT) fail('invalid_response', 503);
   } else {

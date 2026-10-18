@@ -8,7 +8,7 @@ export default defineSecretProvider(() => {
   if (config?.provider === 'or3-secrets' && (!config.namespace || !config.socketPath || !config.tokenFile || !config.vaultId)) throw new SecretError('invalid_configuration');
   registerSecretStore({ id: 'or3-secrets', create: () => {
     if (!config) throw new SecretError('invalid_configuration');
-    const client = createClient({ socketPath: config.socketPath, tokenFile: config.tokenFile, vaultId: config.vaultId });
+    const client = createClient({ socketPath: config.socketPath, tokenFile: config.tokenFile, vaultId: config.vaultId, ...(config.serviceUid === '' || config.serviceUid === undefined ? {} : { serviceUid: Number(config.serviceUid) }) });
     return { ...client, available: async (context?: Parameters<typeof client.status>[0]) => { await client.status(context); } };
   } });
 });

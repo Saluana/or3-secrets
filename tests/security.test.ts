@@ -119,6 +119,13 @@ scenario('exact CLI bytes, explicit disclosure, protected files and Node 24 clie
     expect(readFileSync(output, 'utf8')).toBe(canary);
     expect(f.logs.includes(canary)).toBe(false);
     expect(readFileSync(join(f.vault, 'vault.sqlite')).includes(Buffer.from(canary))).toBe(false);
+    for (const [index, bytes] of [Buffer.from('\ufeffabc\n'), Buffer.from('\ufeff'), Buffer.from('a\ufeffb\n\n')].entries()) {
+      const name = `utf8-${index}`;
+      expect(cli(['put', ...args, '--name', name, '--expected-revision', '0'], bytes).status).toBe(0);
+      const recovered = cli(['get', ...args, '--name', name, '--stdout']);
+      expect(recovered.status).toBe(0);
+      expect(Buffer.from(recovered.stdout)).toEqual(bytes);
+    }
     const node = spawnSync('node', ['--input-type=module', '-e', `import {createClient} from './dist/client.js'; const c=createClient(JSON.parse(process.argv[1])); const r=await c.inspect({scope:${JSON.stringify(scope)},name:'api-key'}); if(r?.ref.revision!==1)process.exit(2);`, JSON.stringify({ socketPath: f.socket, tokenFile: token.file, vaultId: f.vaultId })], { cwd: project, encoding: 'utf8' });
     expect(node.status, node.stderr).toBe(0);
     const aborted = spawnSync('node', ['--input-type=module', '-e', `import {createClient} from './dist/client.js';const signal=AbortSignal.abort();const c=createClient({...JSON.parse(process.argv[1]),signal});try{await c.status();process.exit(2)}catch(e){if(e.code!=='request_aborted')process.exit(3)}`, JSON.stringify({ socketPath: f.socket, tokenFile: token.file, vaultId: f.vaultId })], { cwd: project, encoding: 'utf8' });
@@ -345,11 +352,14 @@ scenario('unsafe disclosure outputs are refused before a secret read or credenti
     await f.start(); const t = await f.token();
     await f.call('secrets/put', { scope, name: 'output', value: 'synthetic-output', expectedRevision: 0 }, t.token);
     const existing = join(f.root, 'existing'); writeFileSync(existing, 'preserve', { mode: 0o600 });
-    const before = (await f.call('status')).data.auditSeq;
+    const audit = await f.token({ kind: 'audit-reader', namespace: undefined, capabilities: ['audit'] });
+    const beforeExport = (await f.call('status')).data.auditSeq;
+    expect(cli(['audit', 'read', '--socket', f.socket, '--vault-id', f.vaultId, '--token-file', audit.file, '--out-file', existing]).status).not.toBe(0);
+    expect((await f.call('status')).data.auditSeq - beforeExport).toBe(1);
     expect(cli(['get', ...f.args(t.file), '--name', 'output', '--out-file', existing]).status).not.toBe(0);
     expect(cli(['token', 'issue', '--socket', f.socket, '--vault-id', f.vaultId, '--token-file', f.operatorFile, '--kind', 'service', '--namespace', 'test', '--capabilities', 'read', '--expires-in', '1h', '--out-file', existing]).status).not.toBe(0);
     const after = (await f.call('status')).data.auditSeq;
-    expect(after - before).toBe(1); // Only the earlier status event; no read or issued credential.
+    expect(after - beforeExport).toBe(2); // Two status events; no read, export or issued credential.
     expect(readFileSync(existing, 'utf8')).toBe('preserve');
   } finally { await f.close(); }
 });
@@ -381,6 +391,17 @@ scenario('slow bodies have a whole-request deadline and in-flight admission is b
   const f = new Fixture(), held: ReturnType<typeof request>[] = [];
   try {
     await f.start();
+    // Invalid credentials and a wrong expected vault must be rejected before
+    // unfinished bodies can occupy the authenticated request budget.
+    for (const [credential, vaultId, expected] of [['ors1.' + '0'.repeat(32) + '.' + 'x'.repeat(43), f.vaultId, 401], [f.operator, '0'.repeat(32), 409]] as const) {
+      const invalid = Array.from({ length: 16 }, () => new Promise<number>((yes, no) => {
+        const req = request({ socketPath: f.socket, path: '/v1/status', method: 'POST', headers: { authorization: `Bearer ${credential}`, 'x-or3-vault-id': vaultId, 'content-type': 'application/json', 'transfer-encoding': 'chunked' } }, res => { res.resume(); res.on('end', () => yes(res.statusCode!)); });
+        held.push(req); req.on('error', no); req.write('{');
+      }));
+      expect(await Promise.all(invalid)).toEqual(Array(16).fill(expected));
+      expect((await f.call('status')).status).toBe(200);
+      for (const req of held.splice(0)) req.destroy();
+    }
     const responses: Promise<number>[] = [];
     for (let n = 0; n < 16; n++) {
       responses.push(new Promise<number>((yes, no) => {

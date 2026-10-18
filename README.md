@@ -20,7 +20,7 @@ Start with `or3-secrets --help`. Every command has its own required options, exa
 
 Ctrl-C or SIGTERM stops the foreground service gracefully; successful cleanup exits 0 and removes the socket.
 
-The [internal security review](docs/security-review.md) records the replay, filesystem, redirect and admission fixes and their regression evidence. Earlier development vaults without the new audit state evidence are refused; create a fresh disposable vault rather than reusing or overwriting those fixtures.
+The [internal security review](docs/security-review.md) records the replay, filesystem, redirect and admission fixes and their regression evidence. The [subsequent review remediation](docs/review-remediation.md) tracks the index, custody, admission, recovery and qualification fixes, including outstanding publication and runtime-stack gates. Earlier development vaults without the new audit state evidence are refused; create a fresh disposable vault rather than reusing or overwriting those fixtures.
 
 ## Node client
 
@@ -30,6 +30,7 @@ const store = createClient({
   socketPath: '/run/or3-secrets/api.sock',
   tokenFile: '/run/or3/credentials/secrets.token',
   vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID',
+  serviceUid: 1000, // Explicit UID of the separately provisioned vault service.
 });
 const scope = { namespace: 'deployment', ownerUserId: 'internal-user', workspaceId: 'workspace', consumerId: 'plugin' };
 await store.put({ scope, name: 'api', value: valueFromProtectedInput, expectedRevision: 0 });
@@ -48,12 +49,12 @@ export default defineNuxtConfig({
     provider: 'or3-secrets', namespace: 'deployment',
     socketPath: '/run/or3-secrets/api.sock',
     tokenFile: '/run/or3/credentials/secrets.token',
-    vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID',
+    vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID', serviceUid: 1000,
   } },
 });
 ```
 
-Nuxt runtime overrides are `NUXT_SECRETS_PROVIDER`, `NUXT_SECRETS_NAMESPACE`, `NUXT_SECRETS_SOCKET_PATH`, `NUXT_SECRETS_TOKEN_FILE`, and `NUXT_SECRETS_VAULT_ID`. They contain paths/identity, **not bearer token contents or the master key**. No secret paths enter public runtime config. The module is skipped for static generation and `ssr: false`.
+Nuxt runtime overrides are `NUXT_SECRETS_PROVIDER`, `NUXT_SECRETS_NAMESPACE`, `NUXT_SECRETS_SOCKET_PATH`, `NUXT_SECRETS_TOKEN_FILE`, `NUXT_SECRETS_VAULT_ID`, and `NUXT_SECRETS_SERVICE_UID`. They contain paths/identity, **not bearer token contents or the master key**. No secret paths enter public runtime config. The module is skipped for static generation and `ssr: false`.
 
 The initial consumer is remembered `host.secrets` in reviewed, package-backed trusted plugins. OR3 derives owner/workspace/plugin from its authenticated session and live sealed activation, rechecks grants, and correlates acting identity separately. `secrets.read` allows trusted plugin code to receive plaintext. Explicit session values remain activation memory; default/remember values use the selected service. Selected provider failures and unsupported activations fail closed. No existing localStorage, Dexie, connection, webhook, Connect, or background-job credentials are migrated. Old remembered values require explicit re-entry. An unselected provider preserves existing deployment behavior.
 
@@ -62,3 +63,13 @@ Secret-bearing browser requests refuse redirects. The OR3 route admits at most 6
 ## Scope
 
 No TCP API, dashboard, identity service, MCP, command runner, offline cache, dynamic credentials, automatic migration, replication, or audit pruning. Encryption does not protect a compromised service identity, kernel, root, OR3 principal, or a plugin already authorized to read a value. Metadata in the live database is authenticated, not encrypted. Whole snapshots require independent encryption/custody.
+
+## Reviewed safety boundaries
+
+The compatible host commit is pinned in [host-compatibility.json](host-compatibility.json); earlier hosts lack the registry and authenticated secret route. This integration requires that commit or a descendant containing it.
+
+Socket clients bind to `serviceUid` (default: the client's own UID); separate service identities require an explicit expected UID and a correctly provisioned service-owned run directory. Every operation rechecks the socket before reading/sending its private credential.
+
+Startup and maintenance run full SQLite index/table integrity checks in addition to authenticated state reconciliation. Invalid credentials and vault IDs are refused before request bodies occupy the authenticated 16-request budget; authentication and authorization repeat in the operation transaction. Audit-reader credentials share a five-per-second budget across every audit-producing operation, including status and denials.
+
+Backup outputs belong outside the source vault. Recovery keys and operator credentials belong outside both managed vaults. Raw backup staging stays on live custody storage; only encrypted bytes are written to the backup medium. Ordinary operations stop at the 960 MiB high-water mark, with an additional 1 MiB admission margin and 64 MiB below the backup ceiling reserved for recovery growth. Offline row-wise rekey can rotate an oversized source without the backup envelope limit and compacts unused/trailing pages. It never drops audit history; an oversized recovered inventory remains blocked for live service and requires an explicit capacity review.

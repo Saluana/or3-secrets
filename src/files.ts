@@ -65,8 +65,9 @@ export function readCredential(path: string): string {
   try { const text = bytes.toString('utf8').replace(/\n$/, ''); if (!/^ors1\.[a-f0-9]{32}\.[A-Za-z0-9_-]{43}$/.test(text)) fail('invalid_credential', 401); return text; }
   finally { bytes.fill(0); }
 }
-export function validateSocket(path: string): void {
+export function validateSocket(path: string, owner = uid()): void {
   const dir = lstatSync(dirname(path)), sock = lstatSync(path);
-  safeParents(dirname(path), dir.uid);
-  if (!sock.isSocket() || sock.uid !== dir.uid || (sock.mode & 0o007) !== 0 || (dir.mode & 0o027) !== 0) fail('unsafe_socket');
+  if (dir.uid !== owner || sock.uid !== owner) fail('unsafe_socket');
+  safeParents(dirname(path), owner);
+  if (!sock.isSocket() || (sock.mode & 0o007) !== 0 || (dir.mode & 0o027) !== 0) fail('unsafe_socket');
 }

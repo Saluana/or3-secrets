@@ -11,7 +11,7 @@ import { chmodSync, mkdirSync, mkdtempSync, openSync, closeSync, readFileSync, r
 import { createServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
 
-const root = resolve(import.meta.dir, '..'), host = resolve(root, '../or3-chat');
+const root = resolve(import.meta.dir, '..'), host = resolve(process.env.OR3_SECRETS_HOST_DIR ?? join(root, '../or3-chat'));
 const work = mkdtempSync(process.platform === 'darwin' ? '/private/tmp/ors-host-' : '/tmp/ors-host-');
 const results = join(root, 'test-results'); mkdirSync(results, { recursive: true });
 const session = `ors-host-${randomBytes(6).toString('hex')}`;
@@ -52,6 +52,9 @@ let server: ChildProcess | undefined, service: ChildProcess | undefined;
 let passed = false;
 try {
   check(Bun.version === '1.3.14', 'Use the pinned Bun 1.3.14 runtime');
+  const hostPin = JSON.parse(readFileSync(join(root, 'host-compatibility.json'), 'utf8'));
+  check(run('git', ['-C', host, 'rev-parse', 'HEAD']) === hostPin.revision, 'Use the pinned immutable host checkout');
+  check(!run('git', ['-C', host, 'status', '--porcelain', '--untracked-files=no']), 'Pinned host source must be clean');
   const packageReceipt = JSON.parse(readFileSync(join(results, 'package-receipt.json'), 'utf8'));
   const artifact = join(results, packageReceipt.artifact);
   check(createHash('sha256').update(readFileSync(artifact)).digest('hex') === packageReceipt.artifactSha256, 'Package receipt checksum mismatch');
@@ -157,7 +160,7 @@ try {
   const revocation = evaluate(`${requestHelpers}const s=globalThis.__or3SecretQualification.secrets;check((await s.get('remembered')).value==='synthetic-host-value-v2','New activation unavailable');const base='/api/admin/plugins/packages/${manifest.id}';const review=await(await fetch(base+'/review?target=current&workspaceId=${setup.workspaceId}')).json();await post(base+'/grants',{target:'current',workspaceId:${JSON.stringify(setup.workspaceId)},approvedGrants:[],expectedPackageDigest:review.packageDigest,expectedAuthoritySha256:review.authoritySha256});const denied=await s.get('remembered');check(!denied.ok,'Revoked grants disclosed');return {oldActivationRefused:true,code:denied.error.code};`);
   const unauthenticated = await fetch(`${origin}/api/plugins/secrets`, { method: 'POST', headers: { origin, 'content-type': 'application/json', 'x-or3-plugin-intent': 'plugin' }, body: JSON.stringify({ operation: 'get', pluginId: manifest.id, activationId: 'invalid', key: 'remembered' }) });
   check(unauthenticated.status === 401, 'Unauthenticated request accepted');
-  const receipt = { generatedAt: new Date().toISOString(), source: 'uncommitted working tree; development server, not production acceptance', vaultPackageSha256: packageReceipt.artifactSha256, bun: Bun.version, node: run('node', ['--version']), browser: run('agent-browser', ['--version']), profile: 'Basic Auth + SQLite + filesystem, isolated data and empty dotenv', reviewedPackageDigest: setup.packageDigest, browserCanary: 'passed', roundtrip, reload, serverDerivedScopeInventory: 'passed', staleReference: 'refused', databasePlaintext: 'absent', pagePrivateConfiguration: 'absent', outage, recovery, workspace, revocation, unauthenticatedStatus: unauthenticated.status, screenshot: 'host-browser.png' };
+  const receipt = { generatedAt: new Date().toISOString(), source: 'development server, not production acceptance', sourceCommit: packageReceipt.sourceBase, sourceState: packageReceipt.sourceState, hostRevision: hostPin.revision, vaultPackageSha256: packageReceipt.artifactSha256, bun: Bun.version, node: run('node', ['--version']), browser: run('agent-browser', ['--version']), profile: 'Basic Auth + SQLite + filesystem, isolated data and empty dotenv', reviewedPackageDigest: setup.packageDigest, browserCanary: 'passed', roundtrip, reload, serverDerivedScopeInventory: 'passed', staleReference: 'refused', databasePlaintext: 'absent', pagePrivateConfiguration: 'absent', outage, recovery, workspace, revocation, unauthenticatedStatus: unauthenticated.status, screenshot: 'host-browser.png' };
   writeFileSync(join(results, 'host-browser.json'), `${JSON.stringify(receipt, null, 2)}\n`);
   passed = true;
   console.log('Full browser/provider qualification passed; test-results/host-browser.json');
