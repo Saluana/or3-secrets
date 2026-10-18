@@ -12,7 +12,7 @@ An npm owner with publish permission for the `@or3` scope must configure trusted
 
 ## Manual publishing
 
-Use a clean checkout on `main` matching remote main, with successful Security qualification for the exact commit. Use Node 24 or newer and Bun 1.3.14 on PATH. No extra worktree is required.
+Use a clean, committed checkout. Use Node 24 or newer and Bun 1.3.14 on PATH. No extra worktree is required.
 
 ```sh
 npm login
@@ -20,7 +20,7 @@ npm publish --dry-run
 npm publish
 ```
 
-`prepublishOnly` checks the runtime, clean committed source, remote main, exact-commit CI, and unused npm version. It installs frozen build dependencies with lifecycle scripts disabled, rebuilds and qualifies the package, and runs typechecks, formatting, and all tests. It rechecks source, registry, CI, and package integrity before returning control to npm. A missing/stale `dist` is rebuilt automatically. npm uses the package's public access configuration. Failed checks stop publication; registry/GitHub errors fail closed. No custom npm token or GitHub CLI is required by the hook.
+`prepublishOnly` checks the runtime, clean committed source, and unused npm version. It installs frozen build dependencies with lifecycle scripts disabled, rebuilds and qualifies the package, and runs typechecks, formatting, and all tests. It rechecks source, registry, and package integrity before returning control to npm. A missing/stale `dist` is rebuilt automatically. npm uses the package's public access configuration. Failed checks stop publication; registry errors fail closed. The hook does not depend on GitHub or require a custom token.
 
 Keep lifecycle scripts enabled: `--ignore-scripts` bypasses the manual gate. Do not add `prepack`, `prepare`, or `postpack` hooks that mutate the qualified payload. Ordinary consumer installs do not run `prepublishOnly`. Receipts under `test-results/` remain internal evidence; users publish from the package root.
 

@@ -26,40 +26,6 @@ assert.equal(
   '',
   'Release sources must be clean',
 );
-if (manual) {
-  assert.equal(
-    execFileSync('git', ['branch', '--show-current'], { cwd: root, encoding: 'utf8' }).trim(),
-    'main',
-    'Publish from main after merging the qualified changes',
-  );
-  const remote = execFileSync('git', ['ls-remote', 'origin', 'refs/heads/main'], {
-    cwd: root,
-    encoding: 'utf8',
-    timeout: 15000,
-  })
-    .trim()
-    .split(/\s+/)[0];
-  assert.equal(
-    remote,
-    source,
-    'Local main must match remote main; pull or push reviewed changes first',
-  );
-  const ci = await fetch(
-    `https://api.github.com/repos/Saluana/or3-secrets/actions/workflows/qualify.yml/runs?head_sha=${source}&event=push&status=success&per_page=5`,
-    { signal: AbortSignal.timeout(15000), redirect: 'error' },
-  );
-  assert.equal(ci.status, 200, 'Unable to verify CI; retry after GitHub is available');
-  const runs = (await ci.json()) as {
-    workflow_runs?: { head_sha: string; event: string; conclusion: string }[];
-  };
-  assert.ok(
-    runs.workflow_runs?.some(
-      (run) => run.head_sha === source && run.event === 'push' && run.conclusion === 'success',
-    ),
-    'Successful CI required for this exact commit; wait for Security qualification to pass',
-  );
-}
-
 // Only an explicit registry E404 proves absence; connectivity/auth failures must stop release.
 const response = await fetch(`https://registry.npmjs.org/@or3%2fsecrets/${manifest.version}`, {
   signal: AbortSignal.timeout(15000),

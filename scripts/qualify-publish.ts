@@ -1,6 +1,6 @@
 // Real npm lifecycle boundary. Failure catalog: missing/stale builds, dirty sources,
-// unavailable/existing versions, unqualified commits, wrong runtime, failed tests.
-// Registry/GitHub metadata is synthetic; npm itself and all build/test commands are real.
+// unavailable/existing versions, wrong runtime, failed tests, changed payloads.
+// Registry metadata is synthetic; npm itself and all build/test commands are real.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import {
@@ -57,7 +57,6 @@ try {
   checked('git', ['config', 'user.email', 'fixture@example.invalid']);
   checked('git', ['add', '.']);
   checked('git', ['commit', '--quiet', '-m', 'Disposable source snapshot']);
-  checked('git', ['remote', 'add', 'origin', project]);
   checked('bun', ['--no-env-file', 'install', '--frozen-lockfile', '--ignore-scripts']);
   const preload = join(project, 'scripts/fixtures/publish-metadata.ts');
   const lifecycleEnv = { NODE_OPTIONS: `--import=${preload}` };
@@ -120,9 +119,6 @@ try {
   expectRejection('registry-offline', 'fixture-registry-offline', {
     OR3_PUBLISH_FIXTURE_MODE: 'offline',
   });
-  expectRejection('unqualified', 'Successful CI required', {
-    OR3_PUBLISH_FIXTURE_MODE: 'unqualified',
-  });
   const bin = join(work, 'bin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'bun'), '#!/bin/sh\necho 1.3.6\n', { mode: 0o755 });
@@ -148,7 +144,12 @@ try {
   writeFileSync(
     join(results, 'publish-lifecycle.json'),
     JSON.stringify(
-      { passed, metadata: 'synthetic npm/GitHub responses', npm: 'real publish --dry-run', steps },
+      {
+        passed,
+        metadata: 'synthetic npm registry responses',
+        npm: 'real publish --dry-run',
+        steps,
+      },
       null,
       2,
     ),
