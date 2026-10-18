@@ -41,22 +41,35 @@ try {
       if (mode === 'read') {
         const refused = (action: () => unknown) => {
           let code = '';
-          try { action(); } catch (error) { code = (error as { code: string }).code; }
+          try {
+            action();
+          } catch (error) {
+            code = (error as { code: string }).code;
+          }
           expect(code).toBe('insufficient_space');
         };
         const outFile = join(f.root, 'refused.backup');
         refused(() => backup({ vaultDir: f.vault, keyFile: f.key, outFile }));
-        expect(existsSync(outFile)).toBe(false); thresholds.push('backup');
+        expect(existsSync(outFile)).toBe(false);
+        thresholds.push('backup');
         const backupFile = join(staging, 'valid.backup');
         const source = new Fixture(staging);
-        const target = { destination: join(f.root, 'refused-destination'), newKeyFile: join(f.root, 'refused.key'), operatorFile: join(f.root, 'refused.token') };
+        const target = {
+          destination: join(f.root, 'refused-destination'),
+          newKeyFile: join(f.root, 'refused.key'),
+          operatorFile: join(f.root, 'refused.token'),
+        };
         try {
           backup({ vaultDir: source.vault, keyFile: source.key, outFile: backupFile });
           refused(() => restore({ backupFile, keyFile: source.key, ...target }));
-          expect(existsSync(target.destination)).toBe(false); thresholds.push('restore');
-        } finally { await source.close(); }
+          expect(existsSync(target.destination)).toBe(false);
+          thresholds.push('restore');
+        } finally {
+          await source.close();
+        }
         refused(() => rekey({ vaultDir: f.vault, keyFile: f.key, ...target }));
-        expect(existsSync(target.destination)).toBe(false); thresholds.push('rekey');
+        expect(existsSync(target.destination)).toBe(false);
+        thresholds.push('rekey');
         expect(existsSync(target.newKeyFile)).toBe(false);
         expect(existsSync(target.operatorFile)).toBe(false);
       }
@@ -138,10 +151,17 @@ try {
   writeFileSync(
     '/receipts/disk-full.json',
     JSON.stringify(
-      { runtime: Bun.version, node: process.versions.node, uid: process.getuid?.(), headroomRefusalsBeforeOutput: thresholds, outcomes },
+      {
+        runtime: Bun.version,
+        node: process.versions.node,
+        uid: process.getuid?.(),
+        headroomRefusalsBeforeOutput: thresholds,
+        outcomes,
+      },
       null,
       2,
     ),
   );
-
-} finally { rmSync(staging, { recursive: true, force: true }); }
+} finally {
+  rmSync(staging, { recursive: true, force: true });
+}

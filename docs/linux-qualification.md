@@ -41,12 +41,12 @@ The collector fixture runs actual Node 24, durably writes a page, then receives 
 
 ## Monitoring responsibilities and remaining boundaries
 
-| Owner | Required signal and response |
-| --- | --- |
-| Service operator | Check service exit/errors and health at 30-second cadence. Alert if the collector's durable cursor lags more than 60 seconds. Retain checkpoints independently, forward before advancing, deduplicate retries and never reset a mismatched cursor. |
-| Log/monitoring operator | Ship rejection summaries and alert on any `droppedIntervals > 0`. The no-drop summary was observed; a representative dropped-summary input exercises the alert threshold. Sustained blocked-stderr backpressure was not forced. Rejection summaries are emitted only for rejected traffic, so silence alone is not a heartbeat; use service/collector liveness to detect missing collection within 60 seconds. |
-| Infrastructure operator | Keep measured absolute NTP offset at most 1 second. Use sequences for ordering despite wall-clock changes. Alert below 8 GiB free, at 512 MiB database size, on nearing 1,000,000 wraps, or with under 24 hours of credential lifetime. Stop growth by 768 MiB and verify maintenance headroom on source and destination filesystems. |
-| Recovery/custody operator | Retain encrypted backups and keys under independently controlled custody, choose and prove the actual backup RPO, issue replacement service/audit authority after restore, reconcile upstream credential validity, and perform target power-loss qualification if required. |
+| Owner                     | Required signal and response                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Service operator          | Check service exit/errors and health at 30-second cadence. Alert if the collector's durable cursor lags more than 60 seconds. Retain checkpoints independently, forward before advancing, deduplicate retries and never reset a mismatched cursor.                                                                                                                                                             |
+| Log/monitoring operator   | Ship rejection summaries and alert on any `droppedIntervals > 0`. The no-drop summary was observed; a representative dropped-summary input exercises the alert threshold. Sustained blocked-stderr backpressure was not forced. Rejection summaries are emitted only for rejected traffic, so silence alone is not a heartbeat; use service/collector liveness to detect missing collection within 60 seconds. |
+| Infrastructure operator   | Keep measured absolute NTP offset at most 1 second. Use sequences for ordering despite wall-clock changes. Alert below 8 GiB free, at 512 MiB database size, on nearing 1,000,000 wraps, or with under 24 hours of credential lifetime. Stop growth by 768 MiB and verify maintenance headroom on source and destination filesystems.                                                                          |
+| Recovery/custody operator | Retain encrypted backups and keys under independently controlled custody, choose and prove the actual backup RPO, issue replacement service/audit authority after restore, reconcile upstream credential validity, and perform target power-loss qualification if required.                                                                                                                                    |
 
 The original runner evaluated representative healthy and adverse monitoring inputs. The merged runner retains the actual process observations; it removes self-tests of a fixture-only alert evaluator, which did not establish any production monitoring contract. These are fixture alert evaluations, not an installed production monitor or evidence that this VPS's existing alerting service delivered an incident notification. External retention, named human administration, independently protected keys, production RPO/RTO, power-loss evidence and independent security review remain deployment/release gates.
 
@@ -54,13 +54,13 @@ The original runner evaluated representative healthy and adverse monitoring inpu
 
 The core process/security suite passed **19 tests, 285 assertions** after the fixture changes; the build, production typecheck, strict qualification-script typecheck, shell syntax and whitespace checks passed. The packaged Node 24 client and launcher roundtrip also passed.
 
-| Small-workload observation | Measured | Preset budget |
-| --- | ---: | ---: |
-| Initial empty-vault readiness | 79.35 ms | 2,000 ms |
-| Populated-vault SIGKILL restart | 151.22 ms | 2,000 ms |
-| Read p95, 200 requests | 10.11 ms | 50 ms |
-| CAS write p95, 200 requests | 8.47 ms | 50 ms |
-| Service idle RSS after workload | 65.93 MiB | 128 MiB |
+| Small-workload observation      |  Measured | Preset budget |
+| ------------------------------- | --------: | ------------: |
+| Initial empty-vault readiness   |  79.35 ms |      2,000 ms |
+| Populated-vault SIGKILL restart | 151.22 ms |      2,000 ms |
+| Read p95, 200 requests          |  10.11 ms |         50 ms |
+| CAS write p95, 200 requests     |   8.47 ms |         50 ms |
+| Service idle RSS after workload | 65.93 MiB |       128 MiB |
 
 DELETE journal, EXCLUSIVE locking and EXTRA synchronization passed admission. While the service owned the vault it retained a 25,136-byte journal with a zeroed header, consistent with the observed exclusive rollback-journal behavior. File and directory fsync succeeded, acknowledged data and the sync probe survived process restart, and the service owned no TCP listener. The private socket was `0600`; the separate-identity profile independently verified a `0660` service-owned/GID-2000 socket in a `0750` directory.
 
@@ -71,17 +71,16 @@ Service UID 1000 and actual Node client UID 1001 shared only GID 2000 socket acc
 The real Node collector was killed after fsync of a forwarded batch and before progress advancement. The resumed reader replayed identical events and drained 6 pages through captured sequence 504 without gaps. A 512-request bad-credential burst produced one 174-byte fixed rejection summary, zero observed drops and no raw supplied credential. Expiry refusal passed. NTP reported synchronized status and -0.058 ms offset against the 1,000 ms budget. Healthy and adverse monitoring inputs produced their expected no-alert/alert decisions, subject to the operational boundaries above.
 
 | SQLite input | Audit events | Startup (s) | Verify (s) | Backup (s) | Restore (s) | Rekey (s) | Peak RSS (MiB) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 MiB | 66,504 | 1.42 | 2.58 | 2.91 | 8.57 | 8.53 | 171.32 |
-| 256 MiB | 360,678 | 5.49 | 10.89 | 12.48 | 35.81 | 40.35 | 172.03 |
-| 768 MiB | 1,145,124 | 16.92 | 32.59 | 37.44 | 246.75 | 136.06 | 175.88 |
-| 1024 MiB | 1,537,356 | 57.84 | 44.18 | 51.34 | 224.23 | 220.96 | 175.16 |
+| ------------ | -----------: | ----------: | ---------: | ---------: | ----------: | --------: | -------------: |
+| 64 MiB       |       66,504 |        1.42 |       2.58 |       2.91 |        8.57 |      8.53 |         171.32 |
+| 256 MiB      |      360,678 |        5.49 |      10.89 |      12.48 |       35.81 |     40.35 |         172.03 |
+| 768 MiB      |    1,145,124 |       16.92 |      32.59 |      37.44 |      246.75 |    136.06 |         175.88 |
+| 1024 MiB     |    1,537,356 |       57.84 |      44.18 |      51.34 |      224.23 |    220.96 |         175.16 |
 
 All stage timing and memory budgets passed without raising them. The exact 1 GiB fixture contained **1,537,356 authenticated events**, produced a **1,073,741,936-byte envelope** (exact 112-byte overhead), and restored/rekeyed to 1,073,684,480-byte databases after the verification/reconnection checks. Startup lifecycle timing conservatively includes shutdown; verify includes both opening validation and a repeated full verification.
 
 Filesystem free space was sampled every 25 ms during each maintenance worker. The largest observed decrease from the pre-fixture baseline was 4,869,273,600 bytes (4.53 GiB), below the 8 GiB reservation. This shared-filesystem observation includes concurrent unrelated writes and can miss shorter peaks; it is not an exclusive-allocation guarantee. The tools' conservative headroom checks and the 8 GiB external reserve remain mandatory.
 
 The original four-stage receipt preserves these measurements. A separate `capacity-oversize.json` records the selective rerun of the oversize refusal after correcting the fixture's artificial page ceiling. That correction changes qualification storage generation only. The merged capacity runner reuses its exact-cap fixture to test oversize refusal automatically, avoiding a second expensive aging pass.
-
 
 A **1,073,750,016-byte authenticated SQLite input** (8 KiB above the snapshot limit) was refused with `too_large` before backup output creation. The complete result is summarized in `test-results/task13-manifest.json`; raw stage and selective-refusal receipts are retained separately. **Task 13 is complete for this internal Linux profile.**

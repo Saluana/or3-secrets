@@ -18,18 +18,18 @@ POST JSON only, `Content-Type: application/json`, no Origin/cookie/query. Header
 
 Every body includes `context:{requestId,actorId?,activationId?}`. Identifiers are nonempty UTF-8, at most 128 bytes, without control characters or malformed surrogates. Exact keys only. Body 256 KiB, value 32 KiB UTF-8, 16 admitted in-flight requests, five-second body deadline. Revisions are positive safe integers up to 9,007,199,254,740,990. Values are exact strings including whitespace.
 
-| Path after `/v1/` | Body fields besides context | Authority/result |
-| --- | --- | --- |
-| `status` | none | Any valid credential; vault/protocol, expiry, audit sequence, capacity/effective storage |
-| `secrets/inspect` | scope, name | metadata; current metadata or null |
-| `secrets/list` | scope, after?, limit? | metadata; `{items,next?}` including tombstones |
-| `secrets/put` | scope, name, value, expectedRevision | write; new metadata; 0 creates, current revision updates |
-| `secrets/resolve` | scope, selector: `{name}` or `{ref:{id,revision}}` | read; `{value,meta}`; stale/deleted refs 404 |
-| `secrets/delete` | scope, name, expectedRevision | delete; incremented authenticated tombstone |
-| `tokens/issue` | kind, capabilities, expiresInSeconds, namespace?, ownerUserId?, workspaceId?, consumerId? | operator; one-time `{token,meta}` |
-| `tokens/list` | after?, limit? | operator; bounded metadata, never digests/tokens |
-| `tokens/revoke` | id | operator; revoke service/audit credential |
-| `audit/read` | after: null or cursor, through?: cursor, limit | audit-reader; `{events,cursor,through}` |
+| Path after `/v1/` | Body fields besides context                                                               | Authority/result                                                                         |
+| ----------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `status`          | none                                                                                      | Any valid credential; vault/protocol, expiry, audit sequence, capacity/effective storage |
+| `secrets/inspect` | scope, name                                                                               | metadata; current metadata or null                                                       |
+| `secrets/list`    | scope, after?, limit?                                                                     | metadata; `{items,next?}` including tombstones                                           |
+| `secrets/put`     | scope, name, value, expectedRevision                                                      | write; new metadata; 0 creates, current revision updates                                 |
+| `secrets/resolve` | scope, selector: `{name}` or `{ref:{id,revision}}`                                        | read; `{value,meta}`; stale/deleted refs 404                                             |
+| `secrets/delete`  | scope, name, expectedRevision                                                             | delete; incremented authenticated tombstone                                              |
+| `tokens/issue`    | kind, capabilities, expiresInSeconds, namespace?, ownerUserId?, workspaceId?, consumerId? | operator; one-time `{token,meta}`                                                        |
+| `tokens/list`     | after?, limit?                                                                            | operator; bounded metadata, never digests/tokens                                         |
+| `tokens/revoke`   | id                                                                                        | operator; revoke service/audit credential                                                |
+| `audit/read`      | after: null or cursor, through?: cursor, limit                                            | audit-reader; `{events,cursor,through}`                                                  |
 
 Scope has exactly `{namespace,ownerUserId,workspaceId,consumerId}`. Pages contain at most 100 entries; audit pages additionally cap at 256 KiB. Cursor is `{seq,mac}`. Audit reads validate cursors, freeze the head before appending their own required access event, share at most five admitted operations/second across export, status and authorization denials (including invalid cursors) and one fresh-head capture/30 seconds per reader. Carry `through` for a batch; never chase each new access event continuously. Persist independent collector progress only after durable forwarding. Cursor divergence is a hard stop requiring operator investigation.
 

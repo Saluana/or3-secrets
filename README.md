@@ -34,7 +34,12 @@ const store = createClient({
   vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID',
   serviceUid: 1000, // Explicit UID of the separately provisioned vault service.
 });
-const scope = { namespace: 'deployment', ownerUserId: 'internal-user', workspaceId: 'workspace', consumerId: 'plugin' };
+const scope = {
+  namespace: 'deployment',
+  ownerUserId: 'internal-user',
+  workspaceId: 'workspace',
+  consumerId: 'plugin',
+};
 await store.put({ scope, name: 'api', value: valueFromProtectedInput, expectedRevision: 0 });
 ```
 
@@ -47,12 +52,16 @@ Build this package, then add `@or3/secrets/nuxt` to the updated OR3 host's `modu
 ```ts
 export default defineNuxtConfig({
   modules: ['@or3/secrets/nuxt'],
-  runtimeConfig: { secrets: {
-    provider: 'or3-secrets', namespace: 'deployment',
-    socketPath: '/run/or3-secrets/api.sock',
-    tokenFile: '/run/or3/credentials/secrets.token',
-    vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID', serviceUid: 1000,
-  } },
+  runtimeConfig: {
+    secrets: {
+      provider: 'or3-secrets',
+      namespace: 'deployment',
+      socketPath: '/run/or3-secrets/api.sock',
+      tokenFile: '/run/or3/credentials/secrets.token',
+      vaultId: 'REPLACE_WITH_INITIALIZATION_VAULT_ID',
+      serviceUid: 1000,
+    },
+  },
 });
 ```
 

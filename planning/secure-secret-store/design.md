@@ -36,17 +36,17 @@ flowchart TD
     Offline --> Backup[Encrypted backup / new restore or rekey destination]
 ```
 
-| Component | Responsibility | Requirements |
-| --- | --- | --- |
-| Lifecycle/files | Explicit init, safe paths, exclusive ownership, durable completion, startup verification | R1, R8, R12 |
-| Crypto | Envelope encryption, authenticated state, domain-separated keys | R2 |
-| Authority | Token digest/policy verification, expiry, capabilities, exact scope matching | R3 |
-| API | Unix transport, strict bounded protocol, sanitized failures | R4 |
-| Store | Prepared SQL, revisions/tombstones, transactions | R5 |
-| Audit | Transactional events, MAC chain, receipts, bounded export and attribution | R6, R12 |
-| CLI/maintenance | Explicit input/output, backup/restore/rekey | R7, R8 |
-| SDK/Nuxt/host adapter | Node-safe provider and first consumer with existing OR3 authority | R9, R10 |
-| Qualification | Failure-first checks, release evidence and independent review gates | R11, R12 |
+| Component             | Responsibility                                                                           | Requirements |
+| --------------------- | ---------------------------------------------------------------------------------------- | ------------ |
+| Lifecycle/files       | Explicit init, safe paths, exclusive ownership, durable completion, startup verification | R1, R8, R12  |
+| Crypto                | Envelope encryption, authenticated state, domain-separated keys                          | R2           |
+| Authority             | Token digest/policy verification, expiry, capabilities, exact scope matching             | R3           |
+| API                   | Unix transport, strict bounded protocol, sanitized failures                              | R4           |
+| Store                 | Prepared SQL, revisions/tombstones, transactions                                         | R5           |
+| Audit                 | Transactional events, MAC chain, receipts, bounded export and attribution                | R6, R12      |
+| CLI/maintenance       | Explicit input/output, backup/restore/rekey                                              | R7, R8       |
+| SDK/Nuxt/host adapter | Node-safe provider and first consumer with existing OR3 authority                        | R9, R10      |
+| Qualification         | Failure-first checks, release evidence and independent review gates                      | R11, R12     |
 
 **Trust boundaries.** Filesystem access and separate process identities protect the key and client tokens; API bearer credentials protect socket operations; authenticated scope enforces the credential's storage boundary; AEAD protects persisted values; OR3's session and activation authority protects browser requests. Each is necessary. Socket access alone is insufficient, and a valid service token does not prove an end user's identity. A namespace-wide OR3 token is deliberately powerful across that namespace; narrower restrictions should be used where practical. Application-asserted audit attribution never adds authority.
 
@@ -79,10 +79,10 @@ Start with these direct modules; split only when the implementation proves a nee
 
 ```ts
 type Scope = Readonly<{
-  namespace: string;    // operator-configured deployment boundary
-  ownerUserId: string;  // OR3's internal user ID
+  namespace: string; // operator-configured deployment boundary
+  ownerUserId: string; // OR3's internal user ID
   workspaceId: string;
-  consumerId: string;   // trusted plugin ID for the first integration
+  consumerId: string; // trusted plugin ID for the first integration
 }>;
 type SecretRef = Readonly<{ id: string; revision: number }>;
 type SecretMeta = Readonly<{
@@ -93,14 +93,22 @@ type SecretMeta = Readonly<{
 }>;
 interface SecretStore {
   inspect(input: { scope: Scope; name: string }): Promise<SecretMeta | null>;
-  list(input: { scope: Scope; after?: string; limit?: number }):
-    Promise<{ items: SecretMeta[]; next?: string }>;
-  put(input: { scope: Scope; name: string; value: string;
-    expectedRevision: number }): Promise<SecretMeta>;
-  resolve(input: { scope: Scope; selector: { name: string } | { ref: SecretRef } }):
-    Promise<{ value: string; meta: SecretMeta }>;
-  delete(input: { scope: Scope; name: string; expectedRevision: number }):
-    Promise<SecretMeta>;
+  list(input: {
+    scope: Scope;
+    after?: string;
+    limit?: number;
+  }): Promise<{ items: SecretMeta[]; next?: string }>;
+  put(input: {
+    scope: Scope;
+    name: string;
+    value: string;
+    expectedRevision: number;
+  }): Promise<SecretMeta>;
+  resolve(input: {
+    scope: Scope;
+    selector: { name: string } | { ref: SecretRef };
+  }): Promise<{ value: string; meta: SecretMeta }>;
+  delete(input: { scope: Scope; name: string; expectedRevision: number }): Promise<SecretMeta>;
 }
 ```
 
@@ -177,12 +185,12 @@ Future consumers have separate work: moving connection credentials requires a re
 
 ## Data Models
 
-| SQLite table | Stored fields and invariants |
-| --- | --- |
-| `vault` | Singleton format/schema, random vault ID, verification ciphertext, wrap count, authenticated header. No master key. |
-| `secrets` | Random ID; exact scope + name unique tuple; monotonic integer revision; live/tombstone state; timestamps; value ciphertext/nonce/tag; wrapped data key/nonce/tag; row MAC. Tombstones discard encrypted value/key fields. Live metadata is authenticated but not encrypted: use opaque IDs and nonsensitive names. |
-| `tokens` | Public ID; SHA-256 digest of random bearer credential; disjoint operator/service/audit-reader kind; exact kind-specific policy fields; expiry/revocation; row MAC. No raw credentials. |
-| `audit` | Monotonic sequence, previous MAC, canonical event payload, HMAC-SHA-256. Includes request ID and explicitly application-asserted actor/activation IDs where present. No secret names/values, credentials, raw grants, or free text; scope identity is a keyed digest. Export preserves original sequence and MACs. |
+| SQLite table | Stored fields and invariants                                                                                                                                                                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `vault`      | Singleton format/schema, random vault ID, verification ciphertext, wrap count, authenticated header. No master key.                                                                                                                                                                                                |
+| `secrets`    | Random ID; exact scope + name unique tuple; monotonic integer revision; live/tombstone state; timestamps; value ciphertext/nonce/tag; wrapped data key/nonce/tag; row MAC. Tombstones discard encrypted value/key fields. Live metadata is authenticated but not encrypted: use opaque IDs and nonsensitive names. |
+| `tokens`     | Public ID; SHA-256 digest of random bearer credential; disjoint operator/service/audit-reader kind; exact kind-specific policy fields; expiry/revocation; row MAC. No raw credentials.                                                                                                                             |
+| `audit`      | Monotonic sequence, previous MAC, canonical event payload, HMAC-SHA-256. Includes request ID and explicitly application-asserted actor/activation IDs where present. No secret names/values, credentials, raw grants, or free text; scope identity is a keyed digest. Export preserves original sequence and MACs. |
 
 Use strict prepared bindings and database constraints for uniqueness, integer ranges, and tombstone/live field consistency. All protocol revisions, sequences, counts, and timestamps represented as JavaScript integers must stay within their specified safe-integer range; reject overflow rather than rounding. The proposed Bun path uses `bun:sqlite` strict parameter mode, `foreign_keys=ON`, `trusted_schema=OFF`, `journal_mode=DELETE`, `locking_mode=EXCLUSIVE`, and `synchronous=EXTRA`. Read back and assert the effective settings on every service/maintenance connection before use. A low-volume store does not need WAL or multiple writers.
 
@@ -216,20 +224,20 @@ Before production, measure aged audit/database fixtures at the supported size an
 
 ## Error Handling
 
-| Condition | API / CLI behavior |
-| --- | --- |
-| Invalid/expired/revoked token or unauthenticated status | `401 unauthorized`; generic detail |
-| Valid token without operation/scope authority | `403 forbidden`; no target existence signal |
-| Authorized missing/deleted/mismatched ref | `404 not_found` |
-| Stale expected revision | `409 revision_conflict`; metadata must be reloaded |
-| Schema/type/content violation | `400 invalid_request` or `415 unsupported_media_type` |
-| Body/value limit | `413 too_large`; abort bounded read |
-| Concurrency ceiling | `429 busy`; no automatic mutation retry |
-| Storage/audit unavailable | `503 unavailable`; no secret value or mutation success |
-| MAC/tag/key/schema corruption | Stop serving affected operations and terminate into an operator-required failed state; sanitized `503` if a response is possible |
-| Expected vault mismatch | Reject before secret/token/audit operations with sanitized `409 vault_mismatch`; SDK also checks responses and marks provider unavailable |
-| Invalid/divergent audit cursor or rekeyed history | `409 audit_checkpoint_mismatch`; preserve collector checkpoint and require explicit reconciliation |
-| CLI usage/auth/conflict/unavailable/verification failure | Stable documented exit categories; sanitized stderr; no fallback output |
+| Condition                                                | API / CLI behavior                                                                                                                        |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Invalid/expired/revoked token or unauthenticated status  | `401 unauthorized`; generic detail                                                                                                        |
+| Valid token without operation/scope authority            | `403 forbidden`; no target existence signal                                                                                               |
+| Authorized missing/deleted/mismatched ref                | `404 not_found`                                                                                                                           |
+| Stale expected revision                                  | `409 revision_conflict`; metadata must be reloaded                                                                                        |
+| Schema/type/content violation                            | `400 invalid_request` or `415 unsupported_media_type`                                                                                     |
+| Body/value limit                                         | `413 too_large`; abort bounded read                                                                                                       |
+| Concurrency ceiling                                      | `429 busy`; no automatic mutation retry                                                                                                   |
+| Storage/audit unavailable                                | `503 unavailable`; no secret value or mutation success                                                                                    |
+| MAC/tag/key/schema corruption                            | Stop serving affected operations and terminate into an operator-required failed state; sanitized `503` if a response is possible          |
+| Expected vault mismatch                                  | Reject before secret/token/audit operations with sanitized `409 vault_mismatch`; SDK also checks responses and marks provider unavailable |
+| Invalid/divergent audit cursor or rekeyed history        | `409 audit_checkpoint_mismatch`; preserve collector checkpoint and require explicit reconciliation                                        |
+| CLI usage/auth/conflict/unavailable/verification failure | Stable documented exit categories; sanitized stderr; no fallback output                                                                   |
 
 Do not echo SQL, paths, value fragments, bearer headers, parser excerpts, upstream response bodies, or crypto exception messages. Crypto/storage failures are operationally distinguishable using fixed event codes and request IDs, never customer input. Avoid claiming all denial logging is durable under an attacker-driven flood or a failed disk.
 
@@ -237,36 +245,36 @@ Do not echo SQL, paths, value fragments, bearer headers, parser excerpts, upstre
 
 Before production code for each boundary, record its failure cases and create checks that fail against the missing/broken implementation. Primary coverage launches the real CLI/service with temporary Unix sockets and databases. No test-only production flags, fake cryptography, or assertions that merely mirror internal helpers. A small independent-vector crypto suite is justified for byte encodings and tag/AAD correctness that black-box lifecycle tests alone cannot establish.
 
-| Failure class | Observable check / negative control |
-| --- | --- |
-| Scope and capabilities | Two users/workspaces/plugins/namespaces; try every operation across each boundary, guessed IDs, replayed refs, metadata-only/write-only tokens, and the disjoint audit-reader/operator policies; tamper a policy field and prove denial. |
-| Crypto/storage | Known independent AES-GCM/HKDF vectors; mutate ciphertext, tag, wrapped key, every AAD field, row state/MAC, and vault marker; reject unexpected schema objects and integer overflow; verify fresh-destination wrap accounting. No plaintext or silent repair. |
-| Files/startup | Missing/wrong key, exposed modes, symlink/nonregular paths, existing outputs/socket, second owner, incomplete durability markers; demonstrate no overwrite/listener on failure and separate production service/client identities. |
-| Consistency | Concurrent CAS has exactly one winner; delete/recreate never revives a ref; expired/revoked tokens fail after commit; lost-response metadata reconciles an unknown write. |
-| Audit/durability | Assert effective SQLite settings and force real write failure on disposable Linux storage; no plaintext/audit page before its event commits and no mutation without its event. Alter/reorder events and test saved-receipt truncation detection; distinguish process crashes from power-loss evidence and unanchored freshness limits. |
-| Audit export | Real audit-reader credential; deny secret/admin routes and deny export to OR3 service tokens. Verify fixed-head ordered pages, required read-access events, bounded idle polling, rate-limit telemetry, loss/retry checkpoints, divergent/rekeyed history, collector outage and application-asserted actor correlation. |
-| Crash/recovery | Terminate processes at observable write/maintenance boundaries; restart sees prior or complete committed state; source survives aborted backup/rekey. Separately qualify output/parent synchronization and the supported power-loss/flush model. |
-| CLI/disclosure | Canary values survive exact non-TTY stdin roundtrip; interactive TTY input and default get refuse. Argv/logs/DB/journal/backups/error artifacts lack raw secret canaries and tokens; explicit stdout is the sole intentional stdout disclosure path. |
-| Backup/rekey | Wrong key, modified/truncated/oversized header or payload, dishonest length, trailing/concatenated bytes, disk headroom failure, interruption. Complete bounded authentication/EOF checks before SQLite use; restore to a fresh-key destination, count new wraps, reject all old credential kinds and preserve source. |
-| OR3 provider | Real authenticated package activation with approved grants; another account/workspace/plugin, grant revocation, disable/update, stale async completion, session persistence, conflict, unavailable service, wrong vault, and forbidden browser bundle imports. |
-| Runtime/package | Recorded assurance decision; exact selected runtime/crypto build on macOS/Linux and Node 24 client; module import/static build; clean package qualification without sibling aliases/developer `.env`; dependency inventory, vulnerability/secret scans and release provenance. |
-| Production profile | Qualify named human MFA/admin attribution and bypass paths, private key/recovery custody, collector event coverage/retention, clock/health monitoring, aged capacity and numeric recovery targets. Mark inherited controls and independent review evidence pending until actually verified. |
+| Failure class          | Observable check / negative control                                                                                                                                                                                                                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scope and capabilities | Two users/workspaces/plugins/namespaces; try every operation across each boundary, guessed IDs, replayed refs, metadata-only/write-only tokens, and the disjoint audit-reader/operator policies; tamper a policy field and prove denial.                                                                                               |
+| Crypto/storage         | Known independent AES-GCM/HKDF vectors; mutate ciphertext, tag, wrapped key, every AAD field, row state/MAC, and vault marker; reject unexpected schema objects and integer overflow; verify fresh-destination wrap accounting. No plaintext or silent repair.                                                                         |
+| Files/startup          | Missing/wrong key, exposed modes, symlink/nonregular paths, existing outputs/socket, second owner, incomplete durability markers; demonstrate no overwrite/listener on failure and separate production service/client identities.                                                                                                      |
+| Consistency            | Concurrent CAS has exactly one winner; delete/recreate never revives a ref; expired/revoked tokens fail after commit; lost-response metadata reconciles an unknown write.                                                                                                                                                              |
+| Audit/durability       | Assert effective SQLite settings and force real write failure on disposable Linux storage; no plaintext/audit page before its event commits and no mutation without its event. Alter/reorder events and test saved-receipt truncation detection; distinguish process crashes from power-loss evidence and unanchored freshness limits. |
+| Audit export           | Real audit-reader credential; deny secret/admin routes and deny export to OR3 service tokens. Verify fixed-head ordered pages, required read-access events, bounded idle polling, rate-limit telemetry, loss/retry checkpoints, divergent/rekeyed history, collector outage and application-asserted actor correlation.                |
+| Crash/recovery         | Terminate processes at observable write/maintenance boundaries; restart sees prior or complete committed state; source survives aborted backup/rekey. Separately qualify output/parent synchronization and the supported power-loss/flush model.                                                                                       |
+| CLI/disclosure         | Canary values survive exact non-TTY stdin roundtrip; interactive TTY input and default get refuse. Argv/logs/DB/journal/backups/error artifacts lack raw secret canaries and tokens; explicit stdout is the sole intentional stdout disclosure path.                                                                                   |
+| Backup/rekey           | Wrong key, modified/truncated/oversized header or payload, dishonest length, trailing/concatenated bytes, disk headroom failure, interruption. Complete bounded authentication/EOF checks before SQLite use; restore to a fresh-key destination, count new wraps, reject all old credential kinds and preserve source.                 |
+| OR3 provider           | Real authenticated package activation with approved grants; another account/workspace/plugin, grant revocation, disable/update, stale async completion, session persistence, conflict, unavailable service, wrong vault, and forbidden browser bundle imports.                                                                         |
+| Runtime/package        | Recorded assurance decision; exact selected runtime/crypto build on macOS/Linux and Node 24 client; module import/static build; clean package qualification without sibling aliases/developer `.env`; dependency inventory, vulnerability/secret scans and release provenance.                                                         |
+| Production profile     | Qualify named human MFA/admin attribution and bypass paths, private key/recovery custody, collector event coverage/retention, clock/health monitoring, aged capacity and numeric recovery targets. Mark inherited controls and independent review evidence pending until actually verified.                                            |
 
 Use synthetic data only. Tests emit `test-results/security-receipt.json` with commit/runtime/crypto-build/platform, named outcomes, effective storage settings, permission checks, observed listeners, backup/recovery fixture checksums, release checks, and resource measurements; never secret values or real credential hashes. Include deliberate broken fixtures to prove detection. A small Linux run with 1,000 synthetic secrets at 10 operations/second characterizes basic cost; an aged-history fixture at the declared supported envelope must additionally meet the production profile's numeric startup, recovery, disk-space, and export-lag budgets. Neither is a reason to introduce caching or concurrency infrastructure. Independent application-security/cryptographic review is a separate release gate before high-value or regulated use, and must identify scope, findings, remediation, and remaining deployment responsibilities.
 
 ## Design Decisions
 
-| Decision | Reason / rejected expansion |
-| --- | --- |
-| Unix socket only | Makes same-host deployment useful while removing a remote TLS/login surface. Remote support requires a separate security design. |
-| Bun SQLite + Node-compatible crypto, conditional on assurance | Candidate primitives without a framework/ORM; establish any required validated-module configuration before runtime commitment, then qualify the exact build. API compatibility alone is not cryptographic validation. |
-| Per-write envelope encryption | Scope/revision authentication and clear master-key separation; small fixed format rather than configurable algorithms. |
-| Random master key, file bootstrap | Avoids a password/unlock/session subsystem; requires separate production identity and recovery custody. A different directory on the same machine is not independent protection from a whole-machine snapshot. |
-| Database-level atomic audit and bounded export | Keep one transactional event store; a narrow audit-reader API supports external retention and monitoring. Successful reads are audited in finite batches; independently held receipts have explicitly limited freshness guarantees. |
-| No cached plaintext or availability fallback | Prevents revoked credentials or outages from silently falling back to stale local values. |
-| Bounded offline maintenance to a fresh-key destination | Avoids online key-rotation races, destructive restore, and legitimate same-key writable clones; one verified copy routine serves restore/rekey and source remains recoverable. |
-| Trusted-plugin remembered secrets first | Concrete current plaintext persistence gap; no connection cross-store migration in the initial release. Raw read remains governed by the existing trusted-plugin grant. |
-| No automatic import | Existing values may have different owners/scopes; explicit re-entry avoids silently assigning incorrect authority. |
+| Decision                                                      | Reason / rejected expansion                                                                                                                                                                                                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unix socket only                                              | Makes same-host deployment useful while removing a remote TLS/login surface. Remote support requires a separate security design.                                                                                                    |
+| Bun SQLite + Node-compatible crypto, conditional on assurance | Candidate primitives without a framework/ORM; establish any required validated-module configuration before runtime commitment, then qualify the exact build. API compatibility alone is not cryptographic validation.               |
+| Per-write envelope encryption                                 | Scope/revision authentication and clear master-key separation; small fixed format rather than configurable algorithms.                                                                                                              |
+| Random master key, file bootstrap                             | Avoids a password/unlock/session subsystem; requires separate production identity and recovery custody. A different directory on the same machine is not independent protection from a whole-machine snapshot.                      |
+| Database-level atomic audit and bounded export                | Keep one transactional event store; a narrow audit-reader API supports external retention and monitoring. Successful reads are audited in finite batches; independently held receipts have explicitly limited freshness guarantees. |
+| No cached plaintext or availability fallback                  | Prevents revoked credentials or outages from silently falling back to stale local values.                                                                                                                                           |
+| Bounded offline maintenance to a fresh-key destination        | Avoids online key-rotation races, destructive restore, and legitimate same-key writable clones; one verified copy routine serves restore/rekey and source remains recoverable.                                                      |
+| Trusted-plugin remembered secrets first                       | Concrete current plaintext persistence gap; no connection cross-store migration in the initial release. Raw read remains governed by the existing trusted-plugin grant.                                                             |
+| No automatic import                                           | Existing values may have different owners/scopes; explicit re-entry avoids silently assigning incorrect authority.                                                                                                                  |
 
 Implementation references: [Bun SQLite](https://bun.sh/docs/runtime/sqlite), [Bun HTTP server](https://bun.sh/docs/runtime/http/server), [Bun environment loading](https://bun.sh/docs/runtime/environment-variables), [Bun Node compatibility](https://bun.com/docs/runtime/nodejs-compat), [Node cryptographic validation boundary](https://nodejs.org/docs/latest-v24.x/api/crypto.html#fips-mode), [SQLite defensive schema guidance](https://www.sqlite.org/security.html), and [OWASP secrets management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html). These support API/security choices, not a claim that this implementation or deployment has been qualified. Framework applicability and evidence owners are recorded in the [production security profile](security-profile.md).
 

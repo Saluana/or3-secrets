@@ -14,21 +14,21 @@ The default assurance decision is nonvalidated Bun 1.3.14, not regulated/FIPS us
 
 ## Executed evidence
 
-| Check | Actual result |
-| --- | --- |
-| Bun 1.3.14 `test --timeout 30000 tests` | 14 passed, 207 assertions, macOS arm64 and non-root Linux arm64 |
-| Independent primitives | NIST AES-256-GCM and RFC 5869 vectors; wrong key/AAD/tag negative controls |
-| Encryption/state | Scope/capability matrix; expiry/revocation; concurrent CAS and stale refs; hostile schema/policy/header/history; independently reauthenticated row substitutions reach both GCM layers and every record context field |
-| API/CLI | Exact stdin/output, no implicit disclosure, protected outputs before reads/issuance, wrong vault, input bounds, 16-in-flight saturation and five-second slow-body deadline, actual Node cancellation |
-| Recovery | SIGKILL/restart, exclusive owner, encrypted backup and fresh-key restore/rekey, old credential refusal, bad/trailing envelope/source preservation, last committed wrapping-budget boundary |
-| Real Linux ENOSPC | 8 MiB tmpfs, UID 1000: required-audit read failure released no plaintext; failed write left no partial record; both recovered after freeing space |
-| Distinct effective identities | Service UID 1000, client UID 1001, socket GID 2000: real Node roundtrip; database/master/operator reads denied; foreign-owned ancestry refused |
-| OR3 targeted suite | 113 tests passed across 10 files, including host secret route/mediation, existing activation mint/revoke/capability contracts, trusted lifecycle/files, provider validation and session bootstrap |
-| OR3 typecheck | Supported `bun run type-check` wrapper passed; existing duplicate-auto-import warnings remain |
-| OR3 public docs | `bun run check:docs` passed (115 files, 103 routes, 20 existing typechecked examples) |
-| Package type/build | Strict TypeScript, unused-symbol check, CLI/client/module build, clean tarball imports and Node launcher/service/client roundtrip passed |
-| Actual Nuxt provider | Built isolated Nuxt app from tarball with OR3's installed toolchain; Node Nitro socket write/read, selected outage and public-bundle private-input scan passed |
-| Dependency/material scan | Pinned Bun `audit --json` returned `{}` / exit 0; 43 build dependency entries in CycloneDX inventory; package credential/private-file patterns and contents checked |
+| Check                                   | Actual result                                                                                                                                                                                                         |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bun 1.3.14 `test --timeout 30000 tests` | 14 passed, 207 assertions, macOS arm64 and non-root Linux arm64                                                                                                                                                       |
+| Independent primitives                  | NIST AES-256-GCM and RFC 5869 vectors; wrong key/AAD/tag negative controls                                                                                                                                            |
+| Encryption/state                        | Scope/capability matrix; expiry/revocation; concurrent CAS and stale refs; hostile schema/policy/header/history; independently reauthenticated row substitutions reach both GCM layers and every record context field |
+| API/CLI                                 | Exact stdin/output, no implicit disclosure, protected outputs before reads/issuance, wrong vault, input bounds, 16-in-flight saturation and five-second slow-body deadline, actual Node cancellation                  |
+| Recovery                                | SIGKILL/restart, exclusive owner, encrypted backup and fresh-key restore/rekey, old credential refusal, bad/trailing envelope/source preservation, last committed wrapping-budget boundary                            |
+| Real Linux ENOSPC                       | 8 MiB tmpfs, UID 1000: required-audit read failure released no plaintext; failed write left no partial record; both recovered after freeing space                                                                     |
+| Distinct effective identities           | Service UID 1000, client UID 1001, socket GID 2000: real Node roundtrip; database/master/operator reads denied; foreign-owned ancestry refused                                                                        |
+| OR3 targeted suite                      | 113 tests passed across 10 files, including host secret route/mediation, existing activation mint/revoke/capability contracts, trusted lifecycle/files, provider validation and session bootstrap                     |
+| OR3 typecheck                           | Supported `bun run type-check` wrapper passed; existing duplicate-auto-import warnings remain                                                                                                                         |
+| OR3 public docs                         | `bun run check:docs` passed (115 files, 103 routes, 20 existing typechecked examples)                                                                                                                                 |
+| Package type/build                      | Strict TypeScript, unused-symbol check, CLI/client/module build, clean tarball imports and Node launcher/service/client roundtrip passed                                                                              |
+| Actual Nuxt provider                    | Built isolated Nuxt app from tarball with OR3's installed toolchain; Node Nitro socket write/read, selected outage and public-bundle private-input scan passed                                                        |
+| Dependency/material scan                | Pinned Bun `audit --json` returned `{}` / exit 0; 43 build dependency entries in CycloneDX inventory; package credential/private-file patterns and contents checked                                                   |
 
 OR3's test configuration loads developer `.env` by default. An existing capability test expecting no model credential initially failed because that environment supplies one. Re-running with `OPENROUTER_API_KEY=''` and Bun `--no-env-file` passed all 113 tests. No credential values were printed and no `.env` was changed. The first Linux recovery run with a 64 MiB tmpfs correctly refused the required 64 MiB-plus headroom; the successful full-suite profile uses 256 MiB. Intentional red tests also exposed/fixed output reservation order, startup cipher verification, foreign ancestor ownership, and conflict/cancellation semantics. Required Nitro registration stays an unbundled entry to avoid virtual-import transformation collisions.
 
@@ -38,13 +38,13 @@ Commands/fixtures are in `docs/qualification.md`, `scripts/qualify*.ts`, `script
 
 Both profiles used **1,568,868** authenticated aged events, a **1,073,741,824-byte** database and a **1,073,741,936-byte** backup (exact 112-byte overhead). The Linux container ran with a 1 GiB memory limit. These are measurements on this machine/VM, not production SLOs.
 
-| Operation | macOS arm64 | Linux arm64 |
-| --- | ---: | ---: |
-| Generate aged fixture | 6.17 s | 13.53 s |
-| Open + full verify (includes repeated verification) | 15.52 s | 16.56 s |
-| Backup | 16.13 s | 20.89 s |
-| Fresh-key restore | 34.29 s | 56.52 s |
-| Fresh-key rekey | 37.49 s | 58.10 s |
+| Operation                                           | macOS arm64 | Linux arm64 |
+| --------------------------------------------------- | ----------: | ----------: |
+| Generate aged fixture                               |      6.17 s |     13.53 s |
+| Open + full verify (includes repeated verification) |     15.52 s |     16.56 s |
+| Backup                                              |     16.13 s |     20.89 s |
+| Fresh-key restore                                   |     34.29 s |     56.52 s |
+| Fresh-key rekey                                     |     37.49 s |     58.10 s |
 
 Runtime-reported maximum RSS is retained raw because Bun's platform units differ; Linux reported 139,516 KiB, macOS reported 257,294,336 bytes. RSS at completion was about 115 MiB/80 MiB respectively. Do not treat this single aged audit workload as a mixed-secret workload benchmark or a production memory guarantee. Recovery adds audit evidence and can grow a destination by pages; operate with capacity margin below the hard **backup input** bound. A live/recovered file above that bound is deliberately refused by backup. The capacity script now additionally records destination sizes on subsequent runs.
 

@@ -1018,7 +1018,10 @@ export class Vault {
       token.id,
       scope,
       'success',
-      { recordMac: changed.mac, ...(changed.state === 'available' ? { wrapCount: this.header.wrap_count } : {}) },
+      {
+        recordMac: changed.mac,
+        ...(changed.state === 'available' ? { wrapCount: this.header.wrap_count } : {}),
+      },
       changed,
     );
     return metadata(changed);

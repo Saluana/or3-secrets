@@ -59,15 +59,26 @@ test('retained audit receipt binds same-revision contents across database forks'
     };
     branchDb.close();
     const db = new Database(join(original, 'vault.sqlite'));
-    db.query('UPDATE secrets SET envelope=?,updated_at=?,mac=?')
-      .run(other.envelope, other.updated_at, other.mac);
+    db.query('UPDATE secrets SET envelope=?,updated_at=?,mac=?').run(
+      other.envelope,
+      other.updated_at,
+      other.mac,
+    );
     db.close();
     const refused = cli([
-      'audit', 'verify', '--vault-dir', original, '--key-file', f.key,
-      '--receipt-file', receiptFile,
+      'audit',
+      'verify',
+      '--vault-dir',
+      original,
+      '--key-file',
+      f.key,
+      '--receipt-file',
+      receiptFile,
     ]);
-    expect(refused.status, 'a foreign revision-2 row must not pass the retained original receipt')
-      .toBe(65);
+    expect(
+      refused.status,
+      'a foreign revision-2 row must not pass the retained original receipt',
+    ).toBe(65);
     expect(JSON.parse(refused.stderr).error.code).toBe('integrity_failure');
   } finally {
     await f.close();

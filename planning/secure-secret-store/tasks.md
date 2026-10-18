@@ -140,20 +140,20 @@ These are deliberately unperformed under the approved local-only scope. The depl
 
 ## Traceability matrix
 
-| Requirement | Acceptance criteria | Tasks | Primary evidence |
-| --- | --- | --- | --- |
-| R1 | AC1–AC5 | 1–2, 4–5, 7, 11, 13, 20 | Unsafe paths, exact schema, ownership, synchronized output and recovery |
-| R2 | AC1–AC5 | 1–3, 11–13, 20 | Independent vectors, record/policy tampering, fresh-key copies and wrap accounting |
-| R3 | AC1–AC6 | 1, 6–10, 16, 20 | Secret/operator/audit-reader capability, scope, expiry and revocation matrix |
-| R4 | AC1–AC5 | 1–2, 7–8, 10, 13, 20 | Bounded local requests/exports, wrong-vault rejection before operations |
-| R5 | AC1–AC5 | 1–2, 5, 7, 9, 13, 17, 20 | Concurrent CAS, references, effective journal/EXTRA durability, lost responses |
-| R6 | AC1–AC6 | 1, 5–7, 10–13, 16, 18–20 | Audit failure, bounded export, independent checkpoints, failed-access and actor correlation |
-| R7 | AC1–AC5 | 1, 4, 8–9, 19–20 | CLI process/output/argv/disclosure checks and operator walkthrough |
-| R8 | AC1–AC5 | 1, 3–4, 10–13, 19–20 | Size-bounded backup, synchronized fresh-key restore/rekey, separate rotation lifecycles |
-| R9 | AC1–AC8 | 1, 8, 14–19, 20 | Real OR3 activation/provider lifecycle and bundle inspection |
-| R10 | AC1–AC4 | 1–2, 8, 14–15, 18–20 | Recorded crypto/runtime target, import/tarball qualification and public docs |
-| R11 | AC1–AC5 | 1–3, 13, 18–20 | Negative controls, aged maximum-size fixtures, security receipt, supply-chain evidence |
-| R12 | AC1–AC5 | 1–2, 4, 6, 10, 13, 16, 18–20 | Control ownership, inherited MFA/identity, separate custody, operating evidence, independent review |
+| Requirement | Acceptance criteria | Tasks                        | Primary evidence                                                                                    |
+| ----------- | ------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| R1          | AC1–AC5             | 1–2, 4–5, 7, 11, 13, 20      | Unsafe paths, exact schema, ownership, synchronized output and recovery                             |
+| R2          | AC1–AC5             | 1–3, 11–13, 20               | Independent vectors, record/policy tampering, fresh-key copies and wrap accounting                  |
+| R3          | AC1–AC6             | 1, 6–10, 16, 20              | Secret/operator/audit-reader capability, scope, expiry and revocation matrix                        |
+| R4          | AC1–AC5             | 1–2, 7–8, 10, 13, 20         | Bounded local requests/exports, wrong-vault rejection before operations                             |
+| R5          | AC1–AC5             | 1–2, 5, 7, 9, 13, 17, 20     | Concurrent CAS, references, effective journal/EXTRA durability, lost responses                      |
+| R6          | AC1–AC6             | 1, 5–7, 10–13, 16, 18–20     | Audit failure, bounded export, independent checkpoints, failed-access and actor correlation         |
+| R7          | AC1–AC5             | 1, 4, 8–9, 19–20             | CLI process/output/argv/disclosure checks and operator walkthrough                                  |
+| R8          | AC1–AC5             | 1, 3–4, 10–13, 19–20         | Size-bounded backup, synchronized fresh-key restore/rekey, separate rotation lifecycles             |
+| R9          | AC1–AC8             | 1, 8, 14–19, 20              | Real OR3 activation/provider lifecycle and bundle inspection                                        |
+| R10         | AC1–AC4             | 1–2, 8, 14–15, 18–20         | Recorded crypto/runtime target, import/tarball qualification and public docs                        |
+| R11         | AC1–AC5             | 1–3, 13, 18–20               | Negative controls, aged maximum-size fixtures, security receipt, supply-chain evidence              |
+| R12         | AC1–AC5             | 1–2, 4, 6, 10, 13, 16, 18–20 | Control ownership, inherited MFA/identity, separate custody, operating evidence, independent review |
 
 ## Definition of done
 

@@ -38,7 +38,9 @@
     "test": "bun test --timeout 30000 tests",
     "typecheck": "tsc --noEmit",
     "build": "bun scripts/build.ts && tsc --emitDeclarationOnly",
-    "qualify": "bun scripts/qualify.ts"
+    "qualify": "bun scripts/qualify.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "peerDependencies": {
     "@nuxt/kit": "^4.0.0"
@@ -53,6 +55,7 @@
     "@nuxt/schema": "4.5.2",
     "@types/node": "24.13.5",
     "bun-types": "1.3.14",
+    "prettier": "3.6.2",
     "typescript": "5.9.3"
   }
 }
