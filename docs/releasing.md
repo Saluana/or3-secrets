@@ -4,7 +4,7 @@ The initial candidate is **0.1.0**. Preparing it does not publish it. Production
 
 ## License
 
-The candidate currently declares `UNLICENSED`, preserving the repository's existing rights because no license has been selected. Choose the intended license before first publication. For an open source license, add its full license text and update the manifest before qualification; npm includes a root LICENSE file automatically.
+The package is licensed under MIT. Keep the root LICENSE and `package.json` license metadata aligned. npm includes the root LICENSE automatically.
 
 ## npm account setup
 
