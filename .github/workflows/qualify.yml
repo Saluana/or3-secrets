@@ -155,8 +155,6 @@ jobs:
           QUALIFIED_SOURCE: ${{ steps.qualified.outputs.source }}
         run: GITHUB_SHA="$QUALIFIED_SOURCE" GITHUB_REF="refs/tags/$RELEASE_TAG" node scripts/check-release.ts test-results
       - name: Publish qualified tarball with npm trusted publishing
-        env:
-          QUALIFIED_SOURCE: ${{ steps.qualified.outputs.source }}
         run: |
           artifact="$(node -p 'JSON.parse(require("fs").readFileSync("test-results/package-receipt.json", "utf8")).artifact')"
-          GITHUB_SHA="$QUALIFIED_SOURCE" GITHUB_REF="refs/tags/$RELEASE_TAG" npm publish "./test-results/$artifact" --access public --provenance --ignore-scripts
+          npm publish "./test-results/$artifact" --access public --provenance --ignore-scripts
