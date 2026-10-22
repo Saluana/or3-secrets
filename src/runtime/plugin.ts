@@ -25,7 +25,7 @@ export default defineNitroPlugin(() => {
       return {
         ...client,
         available: async (context?: Parameters<typeof client.status>[0]) => {
-          await client.status(context);
+          await client.probe(context);
         },
       };
     },

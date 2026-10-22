@@ -155,6 +155,7 @@ export function createClient(options: ClientOptions) {
   };
   return {
     ...store,
+    probe: (context?: Partial<Context>) => call('probe', {}, context),
     status: (context?: Partial<Context>) => call('status', {}, context),
     issueToken: (policy: TokenPolicy, context?: Partial<Context>) =>
       call('tokens/issue', policy, context),

@@ -20,6 +20,27 @@ import { join } from 'node:path';
 import { Fixture, cli, scope } from './helpers';
 import { createClient } from '../src/client';
 
+// Public health checks must authenticate and report availability without
+// allocating an audit row. Ordinary status calls retain their audit contract.
+test('authenticated availability probes do not grow the audit log', async () => {
+  const f = new Fixture();
+  try {
+    await f.start();
+    const before = await f.call('status');
+    expect(before.status).toBe(200);
+    for (let i = 0; i < 12; i++) {
+      const probe = await f.call('probe');
+      expect(probe.status).toBe(200);
+      expect(probe.data).toEqual({ available: true });
+    }
+    expect((await f.call('probe', {}, 'invalid')).status).toBe(401);
+    const after = await f.call('status');
+    expect(after.data.auditSeq).toBe(before.data.auditSeq + 1);
+  } finally {
+    await f.close();
+  }
+});
+
 // A restored filesystem snapshot can fork an admitted lineage without exposing
 // its key. Prior replay tests only substituted different revision numbers. A
 // retained receipt must also reject a valid same-revision row from another fork.

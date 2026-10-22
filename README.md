@@ -61,6 +61,11 @@ await store.put({ scope, name: 'api', value: valueFromProtectedInput, expectedRe
 
 ## OR3 provider
 
+`client.probe()` checks authenticated availability and capacity without writing
+an audit event. The OR3 provider uses it for deep health and readiness so public
+polling cannot grow the vault audit log. `client.status()` retains its audited
+diagnostic behavior. Deploy the matching service and provider together.
+
 Build this package, then add `@or3/secrets/nuxt` to the updated OR3 host's `modules`. Before publication, install the qualified local tarball explicitly; no registry version is implied. Configure **private** runtime values:
 
 ```ts

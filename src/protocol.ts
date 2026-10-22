@@ -94,6 +94,7 @@ export type AuditEvent = { seq: number; previousMac: string; event: AuditPayload
 export type AuditPage = { events: AuditEvent[]; cursor: Cursor | null; through: Cursor };
 /** Request bodies before the transport adds authenticated request context. */
 export type OperationRequests = {
+  probe: Record<string, never>;
   status: Record<string, never>;
   'secrets/inspect': { scope: Scope; name: string };
   'secrets/list': { scope: Scope; after?: string; limit?: number };
@@ -106,6 +107,7 @@ export type OperationRequests = {
   'audit/read': { after: Cursor | null; through?: Cursor; limit: number };
 };
 export type OperationResults = {
+  probe: { available: true };
   status: StatusResult;
   'secrets/inspect': SecretMeta | null;
   'secrets/list': Page<SecretMeta>;
@@ -217,6 +219,7 @@ export interface OperationInput {
   policy?: TokenPolicy;
 }
 export const OPERATIONS = [
+  'probe',
   'status',
   'secrets/inspect',
   'secrets/list',
@@ -230,6 +233,7 @@ export const OPERATIONS = [
 ] as const;
 export type Operation = (typeof OPERATIONS)[number];
 const INPUT_FIELDS: Record<Operation, readonly string[]> = {
+  probe: [],
   status: [],
   'secrets/inspect': ['scope', 'name'],
   'secrets/list': ['scope', 'after', 'limit'],
@@ -386,7 +390,10 @@ export function parseResponse<O extends Operation>(
     if (typeof r.token !== 'string' || !CREDENTIAL_PATTERN.test(r.token))
       fail('invalid_response', 503);
   } else if (operation === 'tokens/revoke') validateTokenMetadata(value);
-  else if (operation === 'status') {
+  else if (operation === 'probe') {
+    const r = object(value, ['available']);
+    if (r.available !== true) fail('invalid_response', 503);
+  } else if (operation === 'status') {
     const r = object(value, ['vaultId', 'protocolVersion', 'expiresAt', 'auditSeq', 'storage']);
     if (
       typeof r.vaultId !== 'string' ||
