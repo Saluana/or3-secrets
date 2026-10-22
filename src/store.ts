@@ -550,6 +550,12 @@ export class Vault {
       // can add a bounded value, metadata and audit entry; reserve a further MiB.
       if (statSync(this.dbPath).size + OPERATION_STORAGE_RESERVE_BYTES >= MAX_LIVE)
         fail('capacity_reached', 503);
+      if (operation === 'probe') {
+        // Health polling authenticates and checks capacity without allocating
+        // an audit event or opening a write transaction.
+        this.preflight(credential, expectedVault);
+        return { available: true };
+      }
       this.db.exec('BEGIN EXCLUSIVE');
       inTransaction = true;
       token = this.authenticate(credential);
