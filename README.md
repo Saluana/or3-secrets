@@ -2,7 +2,7 @@
 
 A small Bun service, CLI, Node client, and optional OR3 Nuxt provider. One Unix socket and one private SQLite database; encrypted secret values, scoped expiring tokens, compare-and-set revisions, required authenticated audit, and fresh-key recovery.
 
-**Initial release candidate (`0.1.1`); npm publication pending.** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](https://github.com/Saluana/or3-secrets/blob/main/docs/qualification.md), [Linux core measurements](https://github.com/Saluana/or3-secrets/blob/main/docs/linux-qualification.md), and the [production control gates](https://github.com/Saluana/or3-secrets/blob/main/planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
+**Release `0.1.2`.** Qualified locally on Bun **1.3.14** and Node **24.13.0**. Standard AES-256-GCM/HKDF-SHA256 primitives; no FIPS validation or independent security audit. See [assurance](docs/assurance.md), [qualification](https://github.com/Saluana/or3-secrets/blob/main/docs/qualification.md), [Linux core measurements](https://github.com/Saluana/or3-secrets/blob/main/docs/linux-qualification.md), and the [production control gates](https://github.com/Saluana/or3-secrets/blob/main/planning/secure-secret-store/security-profile.md) before use. Production credentials have not been imported.
 
 ```sh
 # Use exactly Bun 1.3.14 on PATH; do not upgrade another project's global runtime.
@@ -25,18 +25,18 @@ Read [architecture](docs/architecture.md) for module boundaries and the security
 
 ## Publishing
 
-From a clean, committed checkout, run `npm publish --dry-run`, then `npm publish`. The publish hook requires Bun 1.3.14 on PATH, checks that the npm version is unused, installs frozen dependencies without lifecycle scripts, rebuilds and qualifies the package, and runs types, formatting, and all tests. npm publishes the validated build directly; no artifact path is needed. Keep lifecycle scripts enabled. See [releasing](docs/releasing.md) for first publication and trusted publishing.
+Qualify a clean, committed checkout and push the source commit to `main`. After the main-branch qualification workflow succeeds for that exact commit, push the matching `v<version>` tag. The tag workflow publishes the qualified tarball through npm trusted publishing. Verify the exact version and integrity independently in the npm registry. See [releasing](docs/releasing.md) for qualification and publication requirements.
 
 ## Installation
 
-Once `0.1.1` is published, install the exact version:
+Install the exact version:
 
 ```sh
-npm install --save-exact @or3/secrets@0.1.1
-npx --yes @or3/secrets@0.1.1 --help
+npm install --save-exact @or3/secrets@0.1.2
+npx --yes @or3/secrets@0.1.2 --help
 ```
 
-The Node client requires Node 24 or newer. Running the CLI or service also requires Bun 1.3.14 on PATH. Installing this package never starts a service or creates credentials. Until publication, install the qualified tarball instead. See [releasing](https://github.com/Saluana/or3-secrets/blob/main/docs/releasing.md) for the qualification and publishing procedure.
+The Node client requires Node 24 or newer. Running the CLI or service also requires Bun 1.3.14 on PATH. Installing this package never starts a service or creates credentials. See [releasing](https://github.com/Saluana/or3-secrets/blob/main/docs/releasing.md) for the qualification and publishing procedure.
 
 ## Node client
 
