@@ -18,6 +18,13 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
   --tmpfs "/staging:rw,nosuid,nodev,size=128m,mode=700,uid=$receipt_uid,gid=$receipt_gid" \
   -v "$project:/work:ro" -v "$project/test-results:/receipts" \
   "$image" bun --no-env-file scripts/qualify-disk.ts
+docker run --rm --read-only --network none --memory 512m --memory-swap 512m \
+  --cpus 2 --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges \
+  --user "$receipt_uid:$receipt_gid" \
+  --tmpfs /tmp:rw,nosuid,nodev,size=80m,mode=1777 \
+  --tmpfs "/staging:rw,nosuid,nodev,size=80m,mode=700,uid=$receipt_uid,gid=$receipt_gid" \
+  -v "$project:/work:ro" -v "$project/test-results:/receipts" \
+  "$image" timeout 90s bun --no-env-file scripts/qualify-backup-space.ts
 docker run --rm --network none --user 0:0 --cap-drop ALL \
   --cap-add CHOWN --cap-add SETUID --cap-add SETGID --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add KILL \
   --security-opt no-new-privileges \

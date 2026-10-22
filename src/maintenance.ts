@@ -92,8 +92,7 @@ export function backup(options: {
     if (options.receipt) vault.checkReceipt(options.receipt);
     const size = fstatSize(vault.dbPath);
     if (size > MAX_SNAPSHOT) fail('too_large', 413);
-    // One output snapshot plus the private staging snapshot on live custody storage.
-    headroom(dirname(options.outFile), size);
+    // Reserve the private snapshot before allocating it on live custody storage.
     headroom(vault.vaultDir, size);
     // Raw metadata stays on live custody storage, including after interruption.
     staging = mkdtempSync(join(vault.vaultDir, '.or3-backup-'));
@@ -102,6 +101,8 @@ export function backup(options: {
     source = openPrivate(snapshot);
     const length = fstatSync(source).size;
     if (!length || length > MAX_SNAPSHOT) fail('too_large', 413);
+    // Staging already consumes space, including when output shares its filesystem.
+    headroom(dirname(options.outFile), length + BACKUP_OVERHEAD);
     const header = headerFor(vault.vaultId, length);
     key = vault.backupKey(header.subarray(40, 72));
     const cipher = createCipheriv('aes-256-gcm', key, header.subarray(72, 84), {
